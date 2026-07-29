@@ -1,0 +1,77 @@
+# mountd example configuration
+# Copy to ~/.config/mountd/config.toml and adjust.
+
+[defaults]
+probe_timeout_ms   = 1500   # default per-endpoint probe deadline
+debounce_secs      = 3      # quiet window after a hint before reconciling
+poll_interval_secs = 5      # reconcile cadence (event-driven wakeups planned)
+mount_root         = "~/mnt"
+
+# ── Network fingerprints ─────────────────────────────────────────────
+# A network matches when a local address is inside `subnet` and, if set,
+# the default gateway's MAC equals `gateway_mac` (find it: `arp -n <router>`).
+# The MAC pin disambiguates identical subnets at different sites and works
+# on both Wi-Fi and Ethernet.
+[networks.home]
+subnet      = "192.168.1.0/24"
+gateway_mac = "aa:bb:cc:dd:ee:ff"
+
+# ── Dependencies: wait-until predicates ──────────────────────────────
+# Up = command exits 0 and (optionally) a JSON field matches.
+[deps.tailscale]
+cmd       = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+args      = ["status", "--json"]
+json_path = "BackendState"
+equals    = "Running"
+
+# ── Mounts ───────────────────────────────────────────────────────────
+[[mount]]
+name       = "nas-media"
+protocol   = "smb"
+share      = "media"
+username   = "me"                 # credential comes from the login Keychain
+mountpoint = "~/mnt/nas-media"
+
+  [mount.when]
+  # mount whenever we're home OR the tailnet is up
+  any_of = ["network:home", "dep:tailscale"]
+
+  # Optional; defaults to the protocol service port (tcp:445 / tcp:2049).
+  [mount.gate]
+  probe = "tcp:445"
+
+  # Priority order: highest first. The daemon probes all eligible endpoints
+  # concurrently (staggered) but priority wins, not speed.
+  [[mount.endpoint]]
+  address = "192.168.1.10"        # LAN
+  only_if = "network:home"
+
+  [[mount.endpoint]]
+  address          = "100.64.0.10" # Tailscale IP
+  requires         = "dep:tailscale"
+  probe_timeout_ms = 4000
+
+  [[mount.endpoint]]
+  address  = "nas.example.ts.net"  # MagicDNS last resort
+  requires = "dep:tailscale"
+
+  [mount.policy]
+  unmount_when_gone = true         # clean unmount when `when` stops holding
+  retry = { start_secs = 2, max_secs = 300 }
+
+[[mount]]
+name       = "nas-scratch"
+protocol   = "nfs"
+export     = "/mnt/tank/scratch"
+mountpoint = "~/mnt/nas-scratch"
+# Default options are soft,intr,deadtimeout=60,retrycnt=0,nfc,tcp —
+# override to pin an NFS version once you've tested v3 vs v4:
+options    = "soft,intr,deadtimeout=60,retrycnt=0,nfc,tcp,vers=4"
+
+  [mount.when]
+  all_of = ["dep:tailscale"]
+
+  [[mount.endpoint]]
+  address          = "100.64.0.10"
+  requires         = "dep:tailscale"
+  probe_timeout_ms = 4000

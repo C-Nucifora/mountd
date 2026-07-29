@@ -1,0 +1,45 @@
+[package]
+name = "mountd"
+version = "0.1.0"
+edition = "2021"
+description = "Condition-aware, probe-gated network share mount manager for macOS"
+license = "MIT"
+repository = "https://github.com/C-Nucifora/mountd"
+
+[lib]
+name = "mountd"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mountd"
+path = "src/bin/mountd.rs"
+
+[[bin]]
+name = "mountctl"
+path = "src/bin/mountctl.rs"
+
+[dependencies]
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "net",
+    "time",
+    "process",
+    "sync",
+    "io-util",
+    "signal",
+    "fs",
+] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+libc = "0.2"
+dirs = "6"
+
+[dev-dependencies]
+tempfile = "3"
