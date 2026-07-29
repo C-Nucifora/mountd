@@ -110,24 +110,38 @@ Keychain once (connect via Finder ⌘K and tick "Remember", or
 ## CLI
 
 ```
-mountctl status [--json]   # state of every mount (JSON feeds SwiftBar etc.)
-mountctl mount <name>      # force an attempt (ignores `when`, honors probes)
+mountctl status [--json]    # state of every mount (JSON feeds SwiftBar etc.)
+mountctl explain [name]     # why is/isn't this mounted: conditions, endpoint
+                            # eligibility, live probe results
+mountctl mount <name>       # force an attempt (ignores `when`, honors probes)
 mountctl unmount <name>
-mountctl reload            # re-read config
-mountctl poke              # trigger a reconcile pass now
-mountctl install|uninstall # manage the LaunchAgent
+mountctl reload             # re-read config
+mountctl poke               # trigger a reconcile pass now
+mountctl install|uninstall  # manage the LaunchAgent
+```
+
+```
+$ mountctl explain nas-media
+nas-media: not mounted — decision: Attempt
+  when any_of:
+    ✗ network:home
+    ✓ dep:tailscale
+  endpoints (priority order):
+    192.168.1.10  skipped (network:home not met)
+    100.64.0.10   eligible, probe ok
 ```
 
 ## Status / roadmap
 
-v0.1. Working: config, fingerprinting, dep checks, probe-gated ordered
-endpoints, reconcile loop, IPC + CLI, LaunchAgent install. Planned:
+v0.2. Working: config, fingerprinting, dep checks, probe-gated ordered
+endpoints, reconcile loop, IPC + CLI, LaunchAgent install, event-driven
+wakeups (routing-socket monitor feeding the debounced reconciler, with the
+poll as a safety net), wake-from-sleep detection (monotonic vs wall-clock
+gap), and `mountctl explain`. Planned:
 
-- Event-driven wakeups (SCDynamicStore / NWPathMonitor) instead of the
-  current short poll interval
-- Sleep/wake handling: pre-sleep clean unmount via IOKit power notifications
+- Pre-sleep clean unmount via IOKit power notifications (wake is already
+  detected; the willSleep window needs IOKit registration)
 - Health loop with child-process liveness probes and a SUSPECT state
-- `mountctl eval --explain` (why is/isn't this mounted)
 - Opt-in migration to a better endpoint when one appears
 - Wake-on-LAN
 

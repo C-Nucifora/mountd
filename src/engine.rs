@@ -167,8 +167,7 @@ impl Engine {
 
         for spec in &cfg.mounts {
             let mp = mountcmd::expand_tilde(&spec.mountpoint);
-            let mounted =
-                mtab::find_by_mountpoint(&entries, &mp.to_string_lossy()).is_some();
+            let mounted = mtab::find_by_mountpoint(&entries, &mp.to_string_lossy()).is_some();
 
             let decision = reconcile::decide(spec, &ctx, mounted);
             match decision {
@@ -221,8 +220,7 @@ impl Engine {
                             }
                         }
                     }
-                    let cands =
-                        reconcile::candidates(spec, &ctx, cfg.defaults.probe_timeout_ms);
+                    let cands = reconcile::candidates(spec, &ctx, cfg.defaults.probe_timeout_ms);
                     let chosen =
                         crate::probe::select_endpoint(&cands, Duration::from_millis(250)).await;
                     match chosen {
@@ -260,8 +258,41 @@ impl Engine {
         }
     }
 
+    /// Explain the evaluation of one mount (or all), including live probe
+    /// results for eligible endpoints.
+    pub async fn explain(&self, name: Option<&str>) -> Result<Vec<reconcile::Explanation>> {
+        let cfg = self.cfg.read().await.clone();
+        if let Some(n) = name {
+            cfg.mount(n)
+                .with_context(|| format!("no mount named `{n}`"))?;
+        }
+        let ctx = self.eval_ctx().await;
+        let entries = mtab::list();
+        let mut out = Vec::new();
+        for spec in cfg
+            .mounts
+            .iter()
+            .filter(|m| name.is_none_or(|n| m.name == n))
+        {
+            let mp = mountcmd::expand_tilde(&spec.mountpoint);
+            let mounted = mtab::find_by_mountpoint(&entries, &mp.to_string_lossy()).is_some();
+            let mut ex = reconcile::explain(spec, &ctx, mounted);
+            let cands = reconcile::candidates(spec, &ctx, cfg.defaults.probe_timeout_ms);
+            for c in &cands {
+                let up = crate::probe::probe_tcp(&c.address, c.port, c.timeout).await;
+                if let Some(ep) = ex.endpoints.get_mut(c.index) {
+                    ep.reachable = Some(up);
+                }
+            }
+            out.push(ex);
+        }
+        Ok(out)
+    }
+
     /// Main loop: reconcile on a poll interval, and sooner when hinted
-    /// (debounced so event storms coalesce into one pass).
+    /// (debounced so event storms coalesce into one pass). Detects wake from
+    /// sleep by comparing wall-clock elapsed against monotonic elapsed —
+    /// macOS's monotonic clock pauses while asleep.
     pub async fn run(self: Arc<Self>) {
         loop {
             self.reconcile_once().await;
@@ -272,6 +303,8 @@ impl Engine {
                     Duration::from_secs(cfg.defaults.debounce_secs),
                 )
             };
+            let wall_before = std::time::SystemTime::now();
+            let mono_before = Instant::now();
             tokio::select! {
                 _ = tokio::time::sleep(poll) => {}
                 _ = self.hint.notified() => {
@@ -279,8 +312,24 @@ impl Engine {
                     tokio::time::sleep(debounce).await;
                 }
             }
+            let wall_elapsed = wall_before.elapsed().unwrap_or_default();
+            if let Some(gap) = wake_gap(wall_elapsed, mono_before.elapsed()) {
+                info!(
+                    "wake from sleep detected (~{}s asleep); reconciling",
+                    gap.as_secs()
+                );
+            }
         }
     }
+}
+
+/// If wall-clock time advanced substantially more than monotonic time, the
+/// system slept in between; returns the sleep gap.
+pub fn wake_gap(wall_elapsed: Duration, mono_elapsed: Duration) -> Option<Duration> {
+    const THRESHOLD: Duration = Duration::from_secs(30);
+    wall_elapsed
+        .checked_sub(mono_elapsed)
+        .filter(|gap| *gap > THRESHOLD)
 }
 
 #[cfg(test)]
@@ -364,6 +413,56 @@ mountpoint = "~/mnt/mountd-test-nonexistent"
         eng.reconcile_once().await;
         let st = eng.status().await;
         assert_eq!(st[0].state, "idle (conditions not met)");
+    }
+
+    #[test]
+    fn wake_gap_detects_sleep() {
+        use super::wake_gap;
+        // normal tick: wall ≈ mono
+        assert_eq!(
+            wake_gap(Duration::from_secs(5), Duration::from_secs(5)),
+            None
+        );
+        // small scheduling jitter is not a wake
+        assert_eq!(
+            wake_gap(Duration::from_secs(7), Duration::from_secs(5)),
+            None
+        );
+        // slept 10 minutes: wall advanced, monotonic didn't
+        assert_eq!(
+            wake_gap(Duration::from_secs(605), Duration::from_secs(5)),
+            Some(Duration::from_secs(600))
+        );
+        // clock skew backwards must not underflow
+        assert_eq!(
+            wake_gap(Duration::from_secs(3), Duration::from_secs(5)),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn explain_includes_probe_results_for_eligible_endpoints() {
+        let eng = engine_with(
+            r#"
+[defaults]
+probe_timeout_ms = 100
+
+[[mount]]
+name = "x"
+protocol = "smb"
+share = "s"
+mountpoint = "~/mnt/mountd-test-nonexistent"
+  [[mount.endpoint]]
+  address = "192.0.2.1"
+"#,
+        );
+        let ex = eng.explain(None).await.unwrap();
+        assert_eq!(ex.len(), 1);
+        assert_eq!(ex[0].endpoints[0].reachable, Some(false));
+        assert_eq!(ex[0].decision, "Attempt");
+
+        // named lookup of a missing mount errors
+        assert!(eng.explain(Some("nope")).await.is_err());
     }
 
     #[tokio::test]

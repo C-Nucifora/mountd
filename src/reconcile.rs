@@ -98,6 +98,73 @@ pub fn decide(spec: &MountSpec, ctx: &EvalCtx, currently_mounted: bool) -> Decis
     }
 }
 
+/// One condition's contribution to an explanation.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct CondExplain {
+    pub cond: String,
+    pub holds: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct EndpointExplain {
+    pub address: String,
+    pub eligible: bool,
+    /// The condition that blocked this endpoint, when ineligible.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocked_by: Option<String>,
+    /// Live probe result for eligible endpoints (filled by the engine;
+    /// None when no probe was run).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reachable: Option<bool>,
+}
+
+/// Full answer to "why is/isn't this mounted right now".
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct Explanation {
+    pub name: String,
+    pub mounted: bool,
+    pub should_mount: bool,
+    pub when_any_of: Vec<CondExplain>,
+    pub when_all_of: Vec<CondExplain>,
+    pub endpoints: Vec<EndpointExplain>,
+    pub decision: String,
+}
+
+/// Explain a mount's evaluation. Pure — probe results are filled in later
+/// by the engine for eligible endpoints.
+pub fn explain(spec: &MountSpec, ctx: &EvalCtx, mounted: bool) -> Explanation {
+    let cond_explain = |c: &CondRef| CondExplain {
+        cond: c.to_string(),
+        holds: ctx.cond_holds(c),
+    };
+    let endpoints = spec
+        .endpoints
+        .iter()
+        .map(|ep| {
+            let blocked_by = [&ep.only_if, &ep.requires]
+                .into_iter()
+                .flatten()
+                .find(|c| !ctx.cond_holds(c))
+                .map(|c| c.to_string());
+            EndpointExplain {
+                address: ep.address.clone(),
+                eligible: blocked_by.is_none(),
+                blocked_by,
+                reachable: None,
+            }
+        })
+        .collect();
+    Explanation {
+        name: spec.name.clone(),
+        mounted,
+        should_mount: ctx.when_holds(&spec.when),
+        when_any_of: spec.when.any_of.iter().map(cond_explain).collect(),
+        when_all_of: spec.when.all_of.iter().map(cond_explain).collect(),
+        endpoints,
+        decision: format!("{:?}", decide(spec, ctx, mounted)),
+    }
+}
+
 /// Exponential backoff with a cap: 0 -> start, then doubling to max.
 pub fn next_backoff(current: Option<Duration>, retry: &Retry) -> Duration {
     let start = Duration::from_secs(retry.start_secs);
@@ -270,6 +337,53 @@ mountpoint = "~/mnt/pinned"
         let b4 = next_backoff(Some(b3), &retry);
         assert_eq!(b4, Duration::from_secs(10)); // capped
         assert_eq!(next_backoff(Some(b4), &retry), Duration::from_secs(10));
+    }
+
+    #[test]
+    fn explain_reports_blocking_condition_per_endpoint() {
+        let cfg = cfg();
+        let m = cfg.mount("nas").unwrap();
+        // away from home, tailscale up
+        let ex = explain(m, &ctx(false, true), false);
+        assert!(ex.should_mount);
+        assert_eq!(ex.decision, "Attempt");
+        assert_eq!(
+            ex.when_any_of,
+            vec![
+                CondExplain {
+                    cond: "network:home".into(),
+                    holds: false
+                },
+                CondExplain {
+                    cond: "dep:tailscale".into(),
+                    holds: true
+                },
+            ]
+        );
+        assert!(!ex.endpoints[0].eligible);
+        assert_eq!(ex.endpoints[0].blocked_by.as_deref(), Some("network:home"));
+        assert!(ex.endpoints[1].eligible);
+        assert!(ex.endpoints[1].blocked_by.is_none());
+        assert!(ex.endpoints.iter().all(|e| e.reachable.is_none()));
+    }
+
+    #[test]
+    fn explain_idle_when_nothing_holds() {
+        let cfg = cfg();
+        let m = cfg.mount("nas").unwrap();
+        let ex = explain(m, &ctx(false, false), false);
+        assert!(!ex.should_mount);
+        assert_eq!(ex.decision, "Idle");
+    }
+
+    #[test]
+    fn explain_serializes_for_ipc() {
+        let cfg = cfg();
+        let m = cfg.mount("nas").unwrap();
+        let ex = explain(m, &ctx(true, true), true);
+        let json = serde_json::to_string(&ex).unwrap();
+        let back: Explanation = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, ex);
     }
 
     #[test]

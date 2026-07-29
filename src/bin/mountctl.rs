@@ -18,6 +18,15 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Explain why each mount is or isn't mounted (conditions, endpoint
+    /// eligibility, live probe results).
+    Explain {
+        /// Limit to one mount.
+        name: Option<String>,
+        /// Emit raw JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Force an immediate mount attempt (ignores `when`, honors probes).
     Mount { name: String },
     /// Unmount now.
@@ -35,7 +44,10 @@ enum Cmd {
 async fn send(req: ipc::Request) -> Result<ipc::Response> {
     let resp = ipc::client_request(&ipc::socket_path(), &req).await?;
     if !resp.ok {
-        anyhow::bail!("{}", resp.error.as_deref().unwrap_or("unknown daemon error"));
+        anyhow::bail!(
+            "{}",
+            resp.error.as_deref().unwrap_or("unknown daemon error")
+        );
     }
     Ok(resp)
 }
@@ -52,12 +64,48 @@ async fn main() -> Result<()> {
             } else if status.is_empty() {
                 println!("no mounts configured");
             } else {
-                let name_w = status.iter().map(|s| s.name.len()).max().unwrap_or(4).max(4);
+                let name_w = status
+                    .iter()
+                    .map(|s| s.name.len())
+                    .max()
+                    .unwrap_or(4)
+                    .max(4);
                 println!("{:name_w$}  {:32}  MOUNTPOINT", "NAME", "STATE");
                 for s in &status {
                     println!("{:name_w$}  {:32}  {}", s.name, s.state, s.mountpoint);
                     if let Some(err) = &s.last_error {
                         println!("{:name_w$}  last error: {err}", "");
+                    }
+                }
+            }
+        }
+        Cmd::Explain { name, json } => {
+            let resp = send(ipc::Request::Explain { name }).await?;
+            let explanations = resp.explanations.unwrap_or_default();
+            if json {
+                println!("{}", serde_json::to_string_pretty(&explanations)?);
+            } else {
+                for ex in &explanations {
+                    let mounted = if ex.mounted { "mounted" } else { "not mounted" };
+                    println!("{}: {} — decision: {}", ex.name, mounted, ex.decision);
+                    for (label, conds) in [("any_of", &ex.when_any_of), ("all_of", &ex.when_all_of)]
+                    {
+                        if !conds.is_empty() {
+                            println!("  when {label}:");
+                            for c in conds {
+                                println!("    {} {}", if c.holds { "✓" } else { "✗" }, c.cond);
+                            }
+                        }
+                    }
+                    println!("  endpoints (priority order):");
+                    for ep in &ex.endpoints {
+                        let state = match (&ep.blocked_by, ep.reachable) {
+                            (Some(b), _) => format!("skipped ({b} not met)"),
+                            (None, Some(true)) => "eligible, probe ok".into(),
+                            (None, Some(false)) => "eligible, probe FAILED".into(),
+                            (None, None) => "eligible, not probed".into(),
+                        };
+                        println!("    {}  {}", ep.address, state);
                     }
                 }
             }

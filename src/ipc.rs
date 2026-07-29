@@ -23,10 +23,18 @@ pub fn socket_path() -> PathBuf {
 #[serde(tag = "cmd", rename_all = "snake_case")]
 pub enum Request {
     Status,
-    Mount { name: String },
-    Unmount { name: String },
+    Mount {
+        name: String,
+    },
+    Unmount {
+        name: String,
+    },
     Reload,
     Poke,
+    Explain {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -36,6 +44,8 @@ pub struct Response {
     pub error: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<Vec<MountStatus>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub explanations: Option<Vec<crate::reconcile::Explanation>>,
 }
 
 impl Response {
@@ -44,6 +54,7 @@ impl Response {
             ok: true,
             error: None,
             status: None,
+            explanations: None,
         }
     }
     fn err(e: impl ToString) -> Self {
@@ -51,6 +62,7 @@ impl Response {
             ok: false,
             error: Some(e.to_string()),
             status: None,
+            explanations: None,
         }
     }
 }
@@ -61,6 +73,16 @@ pub async fn handle_request(engine: &Engine, req: Request) -> Response {
             ok: true,
             error: None,
             status: Some(engine.status().await),
+            explanations: None,
+        },
+        Request::Explain { name } => match engine.explain(name.as_deref()).await {
+            Ok(explanations) => Response {
+                ok: true,
+                error: None,
+                status: None,
+                explanations: Some(explanations),
+            },
+            Err(e) => Response::err(format!("{e:#}")),
         },
         Request::Mount { name } => match engine.force_mount(&name).await {
             Ok(()) => Response::ok(),
@@ -101,8 +123,8 @@ pub async fn serve(engine: Arc<Engine>, path: PathBuf) -> Result<()> {
         tokio::fs::create_dir_all(dir).await?;
     }
     let _ = tokio::fs::remove_file(&path).await;
-    let listener = UnixListener::bind(&path)
-        .with_context(|| format!("binding {}", path.display()))?;
+    let listener =
+        UnixListener::bind(&path).with_context(|| format!("binding {}", path.display()))?;
     loop {
         let (stream, _) = listener.accept().await?;
         let engine = engine.clone();

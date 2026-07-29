@@ -68,7 +68,9 @@ pub async fn check_all(cfg: &Config) -> BTreeMap<String, bool> {
 }
 
 /// Minimal join_all to avoid pulling in the futures crate.
-async fn futures_join_all<T, F: std::future::Future<Output = T>>(futs: impl Iterator<Item = F>) -> Vec<T> {
+async fn futures_join_all<T, F: std::future::Future<Output = T>>(
+    futs: impl Iterator<Item = F>,
+) -> Vec<T> {
     let mut handles = Vec::new();
     for f in futs {
         handles.push(f);
@@ -113,7 +115,10 @@ mod tests {
     async fn json_field_match_is_up() {
         let mut d = dep(
             "/bin/sh",
-            &["-c", r#"echo '{"BackendState":"Running","Self":{"Online":true}}'"#],
+            &[
+                "-c",
+                r#"echo '{"BackendState":"Running","Self":{"Online":true}}'"#,
+            ],
         );
         d.json_path = Some("BackendState".into());
         d.equals = Some("Running".into());

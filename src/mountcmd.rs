@@ -51,10 +51,7 @@ pub fn mount_argv(spec: &MountSpec, address: &str, mountpoint: &str) -> Result<V
     let mut argv: Vec<String> = Vec::new();
     match spec.protocol {
         Protocol::Smb => {
-            let share = spec
-                .share
-                .as_deref()
-                .context("smb mount missing `share`")?;
+            let share = spec.share.as_deref().context("smb mount missing `share`")?;
             argv.push("/sbin/mount_smbfs".into());
             // -N: never prompt; credentials come from the Keychain or fail fast
             argv.push("-N".into());
@@ -171,8 +168,12 @@ mountpoint = "~/mnt/nfs1"
     #[test]
     fn smb_argv_uses_keychain_and_escapes_share() {
         let cfg = specs();
-        let argv = mount_argv(cfg.mount("smb1").unwrap(), "192.168.1.5", "/Users/u/mnt/smb1")
-            .unwrap();
+        let argv = mount_argv(
+            cfg.mount("smb1").unwrap(),
+            "192.168.1.5",
+            "/Users/u/mnt/smb1",
+        )
+        .unwrap();
         assert_eq!(
             argv,
             vec![
@@ -192,8 +193,12 @@ mountpoint = "~/mnt/nfs1"
     #[test]
     fn nfs_argv_defaults_to_soft_mount_options() {
         let cfg = specs();
-        let argv =
-            mount_argv(cfg.mount("nfs1").unwrap(), "100.64.0.11", "/Users/u/mnt/nfs1").unwrap();
+        let argv = mount_argv(
+            cfg.mount("nfs1").unwrap(),
+            "100.64.0.11",
+            "/Users/u/mnt/nfs1",
+        )
+        .unwrap();
         assert_eq!(
             argv,
             vec![

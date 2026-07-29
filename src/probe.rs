@@ -136,7 +136,10 @@ mod tests {
         drop(d1);
         drop(d2);
         let cands = vec![cand(0, "127.0.0.1", p1, 300), cand(1, "127.0.0.1", p2, 300)];
-        assert_eq!(select_endpoint(&cands, Duration::from_millis(10)).await, None);
+        assert_eq!(
+            select_endpoint(&cands, Duration::from_millis(10)).await,
+            None
+        );
     }
 
     #[tokio::test]

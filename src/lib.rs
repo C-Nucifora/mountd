@@ -8,3 +8,4 @@ pub mod mountcmd;
 pub mod mtab;
 pub mod probe;
 pub mod reconcile;
+pub mod watcher;

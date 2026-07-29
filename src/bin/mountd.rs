@@ -4,10 +4,14 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use tracing::info;
 
-use mountd::{config::Config, engine, ipc};
+use mountd::{config::Config, engine, ipc, watcher};
 
 #[derive(Parser)]
-#[command(name = "mountd", version, about = "Condition-aware network mount daemon")]
+#[command(
+    name = "mountd",
+    version,
+    about = "Condition-aware network mount daemon"
+)]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -29,8 +33,8 @@ enum Cmd {
 }
 
 fn load_config(path: &PathBuf) -> Result<Config> {
-    let text = std::fs::read_to_string(path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    let text =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     Config::from_toml_str(&text).with_context(|| format!("parsing {}", path.display()))
 }
 
@@ -38,8 +42,7 @@ fn load_config(path: &PathBuf) -> Result<Config> {
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 
@@ -68,6 +71,9 @@ async fn main() -> Result<()> {
                     tracing::error!("ipc server exited: {e:#}");
                 }
             });
+
+            let watch_engine = eng.clone();
+            tokio::spawn(watcher::run(watch_engine));
 
             let run_engine = eng.clone();
             tokio::select! {

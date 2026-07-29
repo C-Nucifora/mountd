@@ -74,10 +74,7 @@ fn gui_domain() -> String {
 /// Write the plist for the current executable and bootstrap it.
 pub async fn install() -> Result<()> {
     let exe = std::env::current_exe().context("locating mountd binary")?;
-    let plist = render_plist(
-        &exe.to_string_lossy(),
-        &log_path().to_string_lossy(),
-    );
+    let plist = render_plist(&exe.to_string_lossy(), &log_path().to_string_lossy());
     let path = plist_path();
     if let Some(dir) = path.parent() {
         tokio::fs::create_dir_all(dir).await?;
@@ -86,11 +83,7 @@ pub async fn install() -> Result<()> {
         .await
         .with_context(|| format!("writing {}", path.display()))?;
     // re-bootstrap if already loaded
-    let _ = launchctl(&[
-        "bootout".into(),
-        format!("{}/{}", gui_domain(), LABEL),
-    ])
-    .await;
+    let _ = launchctl(&["bootout".into(), format!("{}/{}", gui_domain(), LABEL)]).await;
     launchctl(&[
         "bootstrap".into(),
         gui_domain(),
@@ -101,11 +94,7 @@ pub async fn install() -> Result<()> {
 }
 
 pub async fn uninstall() -> Result<()> {
-    let _ = launchctl(&[
-        "bootout".into(),
-        format!("{}/{}", gui_domain(), LABEL),
-    ])
-    .await;
+    let _ = launchctl(&["bootout".into(), format!("{}/{}", gui_domain(), LABEL)]).await;
     let path = plist_path();
     if path.exists() {
         tokio::fs::remove_file(&path).await?;
