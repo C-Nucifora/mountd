@@ -71,10 +71,27 @@ fn gui_domain() -> String {
     format!("gui/{}", unsafe { libc::getuid() })
 }
 
-/// Write the plist for the current executable and bootstrap it.
+/// The daemon binary the LaunchAgent should run: the `mountd` that sits next
+/// to the calling executable (mountctl and mountd install side by side).
+pub fn daemon_path(current_exe: &std::path::Path) -> Result<PathBuf> {
+    let dir = current_exe
+        .parent()
+        .context("executable has no parent directory")?;
+    let daemon = dir.join("mountd");
+    anyhow::ensure!(
+        daemon.is_file(),
+        "mountd binary not found next to {} — install both binaries together \
+         (e.g. `cargo install --path .`)",
+        current_exe.display()
+    );
+    Ok(daemon)
+}
+
+/// Write the plist for the sibling mountd binary and bootstrap it.
 pub async fn install() -> Result<()> {
-    let exe = std::env::current_exe().context("locating mountd binary")?;
-    let plist = render_plist(&exe.to_string_lossy(), &log_path().to_string_lossy());
+    let exe = std::env::current_exe().context("locating current binary")?;
+    let daemon = daemon_path(&exe)?;
+    let plist = render_plist(&daemon.to_string_lossy(), &log_path().to_string_lossy());
     let path = plist_path();
     if let Some(dir) = path.parent() {
         tokio::fs::create_dir_all(dir).await?;
@@ -114,6 +131,27 @@ mod tests {
         assert!(p.contains("<key>KeepAlive</key>"));
         assert!(p.contains("<key>RunAtLoad</key>"));
         assert!(p.contains(LABEL));
+    }
+
+    #[test]
+    fn daemon_path_resolves_sibling_mountd_not_caller() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctl = dir.path().join("mountctl");
+        let daemon = dir.path().join("mountd");
+        std::fs::write(&ctl, b"").unwrap();
+        std::fs::write(&daemon, b"").unwrap();
+        // called from mountctl, the plist must still point at mountd
+        assert_eq!(daemon_path(&ctl).unwrap(), daemon);
+        assert_eq!(daemon_path(&daemon).unwrap(), daemon);
+    }
+
+    #[test]
+    fn daemon_path_errors_when_mountd_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctl = dir.path().join("mountctl");
+        std::fs::write(&ctl, b"").unwrap();
+        let err = daemon_path(&ctl).unwrap_err().to_string();
+        assert!(err.contains("mountd binary not found"), "{err}");
     }
 
     #[test]

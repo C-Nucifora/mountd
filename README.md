@@ -102,10 +102,20 @@ Semantics:
 
 ### SMB credentials
 
-`mountd` never handles passwords. Store the share credential in the login
-Keychain once (connect via Finder ⌘K and tick "Remember", or
-`security add-internet-password -r "smb " -s <server> -a <user> -w`), and
-`mount_smbfs -N` picks it up.
+Store the share credential in the login Keychain once (connect via Finder
+⌘K and tick "Remember", or
+`security add-internet-password -r "smb " -s <server> -a <user> -w`).
+
+At mount time the daemon fetches the password from that item via
+`/usr/bin/security` and passes it in the mount URL — `mount_smbfs -N` alone
+does *not* consult the Keychain (that's a NetFS/Finder feature; `-N` only
+reads `~/.nsmbrc`). Set `keychain_server` on a mount so one credential item
+covers every endpoint (LAN IP, tailnet IP, hostname); it defaults to the
+endpoint address being mounted. The first read of an item created by
+another app triggers a one-time macOS permission prompt — click "Always
+Allow". Trade-off to know about: the password is briefly visible to local
+`ps` during the mount syscall (it is never written to disk, and is redacted
+from logs and error messages).
 
 ## CLI
 

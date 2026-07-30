@@ -117,7 +117,7 @@ impl Engine {
             .await
             .context("no endpoint passed its reachability probe")?;
         let address = spec.endpoints[chosen].address.clone();
-        mountcmd::mount(&spec, &address).await?;
+        attempt_mount(&spec, &address).await?;
         self.note_mounted(&spec.name, &address).await;
         Ok(())
     }
@@ -233,7 +233,7 @@ impl Engine {
                         Some(idx) => {
                             let address = spec.endpoints[idx].address.clone();
                             info!(mount = %spec.name, %address, "probe passed, mounting");
-                            match mountcmd::mount(spec, &address).await {
+                            match attempt_mount(spec, &address).await {
                                 Ok(()) => {
                                     info!(mount = %spec.name, %address, "mounted");
                                     self.note_mounted(&spec.name, &address).await;
@@ -321,6 +321,29 @@ impl Engine {
             }
         }
     }
+}
+
+/// Mount with credentials: for SMB mounts with a username, fetch the
+/// password from the Keychain first (item server = `keychain_server` or the
+/// endpoint address). A generous timeout covers the one-time macOS ACL
+/// prompt when the item was created by another app.
+async fn attempt_mount(spec: &crate::config::MountSpec, address: &str) -> Result<()> {
+    let password = match (&spec.protocol, &spec.username) {
+        (crate::config::Protocol::Smb, Some(user)) => {
+            let server = spec.keychain_server.as_deref().unwrap_or(address);
+            let pw =
+                crate::cred::fetch_smb_password(server, user, None, Duration::from_secs(90)).await;
+            if pw.is_none() {
+                warn!(
+                    mount = %spec.name, %server, %user,
+                    "no Keychain credential found; attempting passwordless mount"
+                );
+            }
+            pw
+        }
+        _ => None,
+    };
+    mountcmd::mount(spec, address, password.as_deref()).await
 }
 
 /// If wall-clock time advanced substantially more than monotonic time, the

@@ -1,5 +1,5 @@
 //! Mount/unmount execution. v0.1 shells out to the system tools:
-//!   SMB: `mount_smbfs -N` (credentials come from the login Keychain)
+//!   SMB: `mount_smbfs` with a Keychain-fetched credential in the URL
 //!   NFS: `mount -t nfs` with a safe soft-mount option set
 //! Unmounts escalate: diskutil unmount → umount → umount -f.
 
@@ -37,17 +37,37 @@ pub fn url_escape(s: &str) -> String {
     out
 }
 
-/// Build the SMB source URL: `//[user@]host/share`.
-pub fn smb_source(username: Option<&str>, address: &str, share: &str) -> String {
-    match username {
-        Some(u) => format!("//{}@{}/{}", url_escape(u), address, url_escape(share)),
-        None => format!("//{}/{}", address, url_escape(share)),
+/// Build the SMB source URL: `//[user[:password]@]host/share`.
+/// The password rides in the mount argv (mount_smbfs offers no other
+/// non-interactive channel — `-N` reads ~/.nsmbrc, not the Keychain), so it
+/// is briefly visible to local `ps` during the mount. It is never stored.
+pub fn smb_source(
+    username: Option<&str>,
+    password: Option<&str>,
+    address: &str,
+    share: &str,
+) -> String {
+    match (username, password) {
+        (Some(u), Some(p)) => format!(
+            "//{}:{}@{}/{}",
+            url_escape(u),
+            url_escape(p),
+            address,
+            url_escape(share)
+        ),
+        (Some(u), None) => format!("//{}@{}/{}", url_escape(u), address, url_escape(share)),
+        (None, _) => format!("//{}/{}", address, url_escape(share)),
     }
 }
 
 /// Build the full mount argv for a spec at a chosen endpoint address.
 /// `mountpoint` must already be expanded to an absolute path.
-pub fn mount_argv(spec: &MountSpec, address: &str, mountpoint: &str) -> Result<Vec<String>> {
+pub fn mount_argv(
+    spec: &MountSpec,
+    address: &str,
+    mountpoint: &str,
+    password: Option<&str>,
+) -> Result<Vec<String>> {
     let mut argv: Vec<String> = Vec::new();
     match spec.protocol {
         Protocol::Smb => {
@@ -59,7 +79,12 @@ pub fn mount_argv(spec: &MountSpec, address: &str, mountpoint: &str) -> Result<V
                 argv.push("-o".into());
                 argv.push(opts.clone());
             }
-            argv.push(smb_source(spec.username.as_deref(), address, share));
+            argv.push(smb_source(
+                spec.username.as_deref(),
+                password,
+                address,
+                share,
+            ));
         }
         Protocol::Nfs => {
             let export = spec
@@ -104,14 +129,24 @@ async fn run(argv: &[String], deadline: Duration) -> Result<()> {
     Ok(())
 }
 
+/// Redact the password in an error message that echoes the mount argv.
+fn redact(msg: &str, password: Option<&str>) -> String {
+    match password {
+        Some(p) if !p.is_empty() => msg.replace(&format!(":{}@", url_escape(p)), ":****@"),
+        _ => msg.to_string(),
+    }
+}
+
 /// Mount `spec` using `address`, creating the mountpoint directory if needed.
-pub async fn mount(spec: &MountSpec, address: &str) -> Result<()> {
+pub async fn mount(spec: &MountSpec, address: &str, password: Option<&str>) -> Result<()> {
     let mp = expand_tilde(&spec.mountpoint);
     tokio::fs::create_dir_all(&mp)
         .await
         .with_context(|| format!("creating mountpoint {}", mp.display()))?;
-    let argv = mount_argv(spec, address, &mp.to_string_lossy())?;
-    run(&argv, MOUNT_TIMEOUT).await
+    let argv = mount_argv(spec, address, &mp.to_string_lossy(), password)?;
+    run(&argv, MOUNT_TIMEOUT)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", redact(&format!("{e:#}"), password)))
 }
 
 /// Unmount with escalation: diskutil unmount → umount → umount -f.
@@ -166,12 +201,13 @@ mountpoint = "~/mnt/nfs1"
     }
 
     #[test]
-    fn smb_argv_uses_keychain_and_escapes_share() {
+    fn smb_argv_without_password_and_escaped_share() {
         let cfg = specs();
         let argv = mount_argv(
             cfg.mount("smb1").unwrap(),
             "192.168.1.5",
             "/Users/u/mnt/smb1",
+            None,
         )
         .unwrap();
         assert_eq!(
@@ -186,8 +222,39 @@ mountpoint = "~/mnt/nfs1"
     }
 
     #[test]
+    fn smb_argv_embeds_escaped_password() {
+        let cfg = specs();
+        let argv = mount_argv(
+            cfg.mount("smb1").unwrap(),
+            "192.168.1.5",
+            "/Users/u/mnt/smb1",
+            Some("p@ss:w/rd"),
+        )
+        .unwrap();
+        assert_eq!(
+            argv[2],
+            "//chris:p%40ss%3Aw%2Frd@192.168.1.5/media%20library"
+        );
+    }
+
+    #[test]
     fn smb_source_without_username() {
-        assert_eq!(smb_source(None, "host", "share"), "//host/share");
+        assert_eq!(smb_source(None, None, "host", "share"), "//host/share");
+        // password without username is ignored
+        assert_eq!(
+            smb_source(None, Some("pw"), "host", "share"),
+            "//host/share"
+        );
+    }
+
+    #[test]
+    fn redact_strips_password_from_errors() {
+        let msg = "`/sbin/mount_smbfs -N //u:p%40w@h/s /mp` failed";
+        assert_eq!(
+            redact(msg, Some("p@w")),
+            "`/sbin/mount_smbfs -N //u:****@h/s /mp` failed"
+        );
+        assert_eq!(redact(msg, None), msg);
     }
 
     #[test]
@@ -197,6 +264,7 @@ mountpoint = "~/mnt/nfs1"
             cfg.mount("nfs1").unwrap(),
             "100.64.0.11",
             "/Users/u/mnt/nfs1",
+            None,
         )
         .unwrap();
         assert_eq!(
@@ -219,7 +287,7 @@ mountpoint = "~/mnt/nfs1"
         let m = &mut cfg.mounts[1];
         m.options = Some("soft,vers=4".into());
         assert!(m.protocol == Protocol::Nfs);
-        let argv = mount_argv(m, "h", "/mp").unwrap();
+        let argv = mount_argv(m, "h", "/mp", None).unwrap();
         assert!(argv.contains(&"soft,vers=4".to_string()));
     }
 

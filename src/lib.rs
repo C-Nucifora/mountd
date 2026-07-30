@@ -1,4 +1,5 @@
 pub mod config;
+pub mod cred;
 pub mod deps;
 pub mod engine;
 pub mod fingerprint;

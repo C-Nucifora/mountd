@@ -307,9 +307,14 @@ pub struct MountSpec {
     /// NFS export path (`nfs` only).
     #[serde(default)]
     pub export: Option<String>,
-    /// SMB username; credentials come from the login Keychain (`mount_smbfs -N`).
+    /// SMB username; the password is fetched from the login Keychain.
     #[serde(default)]
     pub username: Option<String>,
+    /// Keychain item server attribute to fetch the password from. Defaults to
+    /// the endpoint address being mounted; set it so one credential item
+    /// covers every endpoint (LAN IP, tailnet IP, hostname) of this mount.
+    #[serde(default)]
+    pub keychain_server: Option<String>,
     pub mountpoint: String,
     /// Extra `-o` mount options, passed through verbatim.
     #[serde(default)]
