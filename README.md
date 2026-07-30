@@ -141,6 +141,22 @@ nas-media: not mounted — decision: Attempt
     100.64.0.10   eligible, probe ok
 ```
 
+## Menu bar app
+
+`menubar/` contains a native AppKit menu bar client (no Xcode project, no
+third-party dependencies — a single Swift file built with `swiftc`):
+
+```sh
+cd menubar && ./build.sh install   # builds, ad-hoc signs, installs to
+                                   # ~/Applications, registers a login item
+```
+
+The icon reflects aggregate state (drive+checkmark = mounted, exclamation =
+error, question mark = daemon unreachable). The menu shows each mount with
+its live state and offers Mount Now / Unmount / Reveal in Finder per mount,
+plus Reconcile Now, Reload Config, and Edit Config. It talks to the daemon
+through `mountctl`, so it needs no extra permissions or entitlements.
+
 ## Status / roadmap
 
 v0.2. Working: config, fingerprinting, dep checks, probe-gated ordered
