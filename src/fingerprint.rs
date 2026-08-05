@@ -116,26 +116,41 @@ pub fn local_ipv4_addrs() -> (Vec<(Ipv4Addr, u8)>, bool) {
     (addrs, utun)
 }
 
+/// These are kernel-table lookups that normally return in milliseconds, but
+/// they run on every reconcile pass — and the engine has exactly one of those.
+/// A wedged `route` or `arp` during interface teardown would otherwise stop the
+/// daemon managing anything at all.
+const QUERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Run a short-lived query command, yielding its stdout, or empty on any
+/// failure or timeout.
+async fn query(program: &str, args: &[&str]) -> String {
+    let run = tokio::process::Command::new(program)
+        .args(args)
+        .kill_on_drop(true)
+        .output();
+    match tokio::time::timeout(QUERY_TIMEOUT, run).await {
+        Ok(Ok(out)) => String::from_utf8_lossy(&out.stdout).into_owned(),
+        Ok(Err(_)) => String::new(),
+        Err(_) => {
+            tracing::warn!("`{program}` timed out while reading network state");
+            String::new()
+        }
+    }
+}
+
 /// Gather a full snapshot: local addresses plus default gateway IP and MAC.
 pub async fn gather() -> NetSnapshot {
     let (local_addrs, utun_present) = local_ipv4_addrs();
 
-    let route_out = tokio::process::Command::new("/sbin/route")
-        .args(["-n", "get", "default"])
-        .output()
-        .await
-        .ok()
-        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-        .unwrap_or_default();
+    let route_out = query("/sbin/route", &["-n", "get", "default"]).await;
     let (gateway_ip, _iface) = parse_route_get(&route_out);
 
     let gateway_mac = match gateway_ip {
-        Some(gw) => tokio::process::Command::new("/usr/sbin/arp")
-            .args(["-n", &gw.to_string()])
-            .output()
-            .await
-            .ok()
-            .and_then(|o| parse_arp(&String::from_utf8_lossy(&o.stdout))),
+        Some(gw) => {
+            let arp_out = query("/usr/sbin/arp", &["-n", &gw.to_string()]).await;
+            parse_arp(&arp_out)
+        }
         None => None,
     };
 

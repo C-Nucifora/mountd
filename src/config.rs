@@ -24,6 +24,17 @@ pub enum ConfigError {
     NoEndpoints(String),
     #[error("mount `{mount}`: {msg}")]
     Invalid { mount: String, msg: String },
+    #[error("network `{network}`: {msg}")]
+    InvalidNetwork { network: String, msg: String },
+    #[error("mounts `{a}` and `{b}` share the mountpoint `{path}`")]
+    MountpointCollision { a: String, b: String, path: String },
+    #[error("mount `{inner}` (`{inner_path}`) is nested inside mount `{outer}` (`{outer_path}`)")]
+    MountpointNesting {
+        inner: String,
+        inner_path: String,
+        outer: String,
+        outer_path: String,
+    },
 }
 
 /// An IPv4 CIDR block, e.g. `192.168.1.0/24`.
@@ -69,11 +80,12 @@ impl<'de> Deserialize<'de> for Cidr {
 }
 
 /// Normalize a MAC address: lowercase, each octet zero-padded to two digits.
-/// macOS `arp` prints octets without leading zeros (`aa:bb:c:d:ee:ff`).
+/// macOS `arp` prints octets without leading zeros (`aa:bb:c:d:ee:ff`); vendor
+/// documentation often uses dashes, so both separators are accepted.
 pub fn normalize_mac(mac: &str) -> Option<String> {
     let octets: Vec<String> = mac
         .trim()
-        .split(':')
+        .split([':', '-'])
         .map(|o| u8::from_str_radix(o, 16).map(|b| format!("{b:02x}")))
         .collect::<Result<_, _>>()
         .ok()?;
@@ -131,10 +143,12 @@ impl FromStr for Probe {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.split_once(':') {
-            Some(("tcp", p)) => p
-                .parse()
-                .map(Probe::Tcp)
-                .map_err(|_| format!("invalid probe port in `{s}`")),
+            Some(("tcp", p)) => match p.parse() {
+                // port 0 would make the endpoint permanently unreachable with
+                // nothing but a "waiting" state to show for it
+                Ok(0) | Err(_) => Err(format!("invalid probe port in `{s}`")),
+                Ok(port) => Ok(Probe::Tcp(port)),
+            },
             _ => Err(format!("invalid probe `{s}` (expected `tcp:<port>`)")),
         }
     }
@@ -159,6 +173,15 @@ fn default_poll_interval_secs() -> u64 {
 fn default_mount_root() -> String {
     "~/mnt".to_string()
 }
+fn default_wake_settle_secs() -> u64 {
+    20
+}
+fn default_health_interval_secs() -> u64 {
+    30
+}
+fn default_sleep_unmount_budget_secs() -> u64 {
+    8
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -169,8 +192,21 @@ pub struct Defaults {
     pub debounce_secs: u64,
     #[serde(default = "default_poll_interval_secs")]
     pub poll_interval_secs: u64,
+    /// Mountpoints given as a bare name (no `/`) resolve against this root.
     #[serde(default = "default_mount_root")]
     pub mount_root: String,
+    /// After waking, conditions are treated as untrustworthy for this long:
+    /// the network has not finished coming up, and acting on a false reading
+    /// force-unmounts healthy shares.
+    #[serde(default = "default_wake_settle_secs")]
+    pub wake_settle_secs: u64,
+    /// How often a mounted share's endpoint is re-probed for liveness.
+    #[serde(default = "default_health_interval_secs")]
+    pub health_interval_secs: u64,
+    /// Total time budget for unmounting everything before the system sleeps.
+    /// The power acknowledgement is sent when this elapses regardless.
+    #[serde(default = "default_sleep_unmount_budget_secs")]
+    pub sleep_unmount_budget_secs: u64,
 }
 
 impl Default for Defaults {
@@ -180,6 +216,9 @@ impl Default for Defaults {
             debounce_secs: default_debounce_secs(),
             poll_interval_secs: default_poll_interval_secs(),
             mount_root: default_mount_root(),
+            wake_settle_secs: default_wake_settle_secs(),
+            health_interval_secs: default_health_interval_secs(),
+            sleep_unmount_budget_secs: default_sleep_unmount_budget_secs(),
         }
     }
 }
@@ -238,6 +277,10 @@ pub struct Gate {
     pub probe: Probe,
 }
 
+fn default_wol_wait_secs() -> u64 {
+    45
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Endpoint {
@@ -248,6 +291,13 @@ pub struct Endpoint {
     pub requires: Option<CondRef>,
     #[serde(default)]
     pub probe_timeout_ms: Option<u64>,
+    /// Wake this host with a magic packet when its probe fails.
+    #[serde(default)]
+    pub wake_on_lan: Option<crate::wol::WolSpec>,
+    /// How long to give the server to boot after a magic packet before
+    /// sending another.
+    #[serde(default = "default_wol_wait_secs")]
+    pub wol_wait_secs: u64,
 }
 
 fn default_true() -> bool {
@@ -278,11 +328,45 @@ impl Default for Retry {
     }
 }
 
+fn default_unmount_grace_secs() -> u64 {
+    30
+}
+fn default_health_failures() -> u32 {
+    3
+}
+fn default_migrate_confirmations() -> u32 {
+    2
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Policy {
     #[serde(default = "default_true")]
     pub unmount_when_gone: bool,
+    /// How long `when` must stay false before the mount is actually removed.
+    /// A single bad sample — a slow `tailscale status`, an ARP cache that has
+    /// not repopulated after wake — must never cost a healthy mount.
+    #[serde(default = "default_unmount_grace_secs")]
+    pub unmount_grace_secs: u64,
+    /// Consecutive failed liveness probes before a mounted share is declared
+    /// suspect and recovered.
+    #[serde(default = "default_health_failures")]
+    pub health_failures: u32,
+    /// Mount without a password when the Keychain lookup fails. Off by
+    /// default: against a server with guest access this silently mounts as
+    /// nobody.
+    #[serde(default)]
+    pub allow_passwordless: bool,
+    /// Move an existing mount to a higher-priority endpoint when one becomes
+    /// reachable. Off by default — it costs an unmount/remount cycle.
+    #[serde(default)]
+    pub migrate: bool,
+    /// Consecutive successful probes of the better endpoint before migrating.
+    #[serde(default = "default_migrate_confirmations")]
+    pub migrate_confirmations: u32,
+    /// Unmount cleanly when the system is about to sleep.
+    #[serde(default = "default_true")]
+    pub unmount_before_sleep: bool,
     #[serde(default)]
     pub retry: Retry,
 }
@@ -291,6 +375,12 @@ impl Default for Policy {
     fn default() -> Self {
         Policy {
             unmount_when_gone: true,
+            unmount_grace_secs: default_unmount_grace_secs(),
+            health_failures: default_health_failures(),
+            allow_passwordless: false,
+            migrate: false,
+            migrate_confirmations: default_migrate_confirmations(),
+            unmount_before_sleep: true,
             retry: Retry::default(),
         }
     }
@@ -343,7 +433,7 @@ impl MountSpec {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default)]
@@ -359,17 +449,30 @@ pub struct Config {
 impl Config {
     pub fn from_toml_str(s: &str) -> Result<Config, ConfigError> {
         let mut cfg: Config = toml::from_str(s)?;
-        for net in cfg.networks.values_mut() {
+        for (name, net) in cfg.networks.iter_mut() {
             if let Some(mac) = &net.gateway_mac {
-                let norm = normalize_mac(mac).ok_or_else(|| ConfigError::Invalid {
-                    mount: "networks".into(),
+                let norm = normalize_mac(mac).ok_or_else(|| ConfigError::InvalidNetwork {
+                    network: name.clone(),
                     msg: format!("invalid gateway_mac `{mac}`"),
                 })?;
                 net.gateway_mac = Some(norm);
             }
         }
+        cfg.resolve_mountpoints();
         cfg.validate()?;
         Ok(cfg)
+    }
+
+    /// A mountpoint given as a bare name (no `/`) is resolved against
+    /// `defaults.mount_root`, which is what the documented knob has always
+    /// implied.
+    fn resolve_mountpoints(&mut self) {
+        let root = self.defaults.mount_root.trim_end_matches('/').to_string();
+        for m in &mut self.mounts {
+            if !m.mountpoint.contains('/') && !m.mountpoint.is_empty() {
+                m.mountpoint = format!("{}/{}", root, m.mountpoint);
+            }
+        }
     }
 
     pub fn mount(&self, name: &str) -> Option<&MountSpec> {
@@ -435,9 +538,149 @@ impl Config {
                         });
                     }
                 }
+                if let Some(wol) = &ep.wake_on_lan {
+                    if normalize_mac(&wol.mac).is_none() {
+                        return Err(ConfigError::Invalid {
+                            mount: m.name.clone(),
+                            msg: format!("invalid wake_on_lan MAC `{}`", wol.mac),
+                        });
+                    }
+                    if wol.broadcast.parse::<Ipv4Addr>().is_err() {
+                        return Err(ConfigError::Invalid {
+                            mount: m.name.clone(),
+                            msg: format!(
+                                "invalid wake_on_lan broadcast address `{}`",
+                                wol.broadcast
+                            ),
+                        });
+                    }
+                }
+                if ep.address.starts_with('-') {
+                    return Err(ConfigError::Invalid {
+                        mount: m.name.clone(),
+                        msg: format!(
+                            "endpoint address `{}` starts with `-` and would be \
+                             read as a command-line flag",
+                            ep.address
+                        ),
+                    });
+                }
+            }
+            self.check_mountpoint(m)?;
+            self.check_retry(m)?;
+        }
+        self.check_mountpoint_overlap()?;
+        Ok(())
+    }
+
+    /// A mountpoint must be absolute (or `~`-rooted). A relative path behaves
+    /// completely differently depending on the daemon's working directory:
+    /// under launchd it is `/`, so every mount attempt fails, while a terminal
+    /// run from `$HOME` silently creates a junk directory and appears to work.
+    fn check_mountpoint(&self, m: &MountSpec) -> Result<(), ConfigError> {
+        let mp = &m.mountpoint;
+        if mp.is_empty() {
+            return Err(ConfigError::Invalid {
+                mount: m.name.clone(),
+                msg: "mountpoint is empty".into(),
+            });
+        }
+        if !(mp.starts_with('/') || mp == "~" || mp.starts_with("~/")) {
+            return Err(ConfigError::Invalid {
+                mount: m.name.clone(),
+                msg: format!(
+                    "mountpoint `{mp}` must be absolute or start with `~/` \
+                     (a relative path resolves against the daemon's working directory)"
+                ),
+            });
+        }
+        Ok(())
+    }
+
+    /// Unbounded retry values turn one failed mount into a panic in the
+    /// reconcile path: the backoff doubles until `Duration` or `Instant`
+    /// arithmetic overflows.
+    fn check_retry(&self, m: &MountSpec) -> Result<(), ConfigError> {
+        const MAX_RETRY_SECS: u64 = 86_400;
+        let r = &m.policy.retry;
+        if r.max_secs == 0 || r.max_secs > MAX_RETRY_SECS {
+            return Err(ConfigError::Invalid {
+                mount: m.name.clone(),
+                msg: format!("policy.retry.max_secs must be between 1 and {MAX_RETRY_SECS}"),
+            });
+        }
+        if r.start_secs == 0 || r.start_secs > r.max_secs {
+            return Err(ConfigError::Invalid {
+                mount: m.name.clone(),
+                msg: "policy.retry.start_secs must be between 1 and max_secs".into(),
+            });
+        }
+        Ok(())
+    }
+
+    /// Two mounts sharing a mountpoint make each read as mounted when only one
+    /// is; when one's conditions lapse it unmounts the other's volume, and the
+    /// pair oscillates. Nesting has the same problem on unmount ordering.
+    fn check_mountpoint_overlap(&self) -> Result<(), ConfigError> {
+        let paths: Vec<(String, String)> = self
+            .mounts
+            .iter()
+            .map(|m| {
+                (
+                    m.name.clone(),
+                    crate::mountcmd::normalize_mountpoint(&m.mountpoint)
+                        .to_string_lossy()
+                        .trim_end_matches('/')
+                        .to_string(),
+                )
+            })
+            .collect();
+
+        for i in 0..paths.len() {
+            for j in (i + 1)..paths.len() {
+                let (a, pa) = &paths[i];
+                let (b, pb) = &paths[j];
+                if pa == pb {
+                    return Err(ConfigError::MountpointCollision {
+                        a: a.clone(),
+                        b: b.clone(),
+                        path: pa.clone(),
+                    });
+                }
+                if let Some((outer, outer_path, inner, inner_path)) = nested_pair(a, pa, b, pb) {
+                    return Err(ConfigError::MountpointNesting {
+                        inner: inner.to_string(),
+                        inner_path: inner_path.to_string(),
+                        outer: outer.to_string(),
+                        outer_path: outer_path.to_string(),
+                    });
+                }
             }
         }
         Ok(())
+    }
+}
+
+/// If one path is a proper ancestor of the other, return (outer, outer_path,
+/// inner, inner_path). Compares whole path components so `/a/bc` is not
+/// treated as nested inside `/a/b`.
+fn nested_pair<'a>(
+    a: &'a str,
+    pa: &'a str,
+    b: &'a str,
+    pb: &'a str,
+) -> Option<(&'a str, &'a str, &'a str, &'a str)> {
+    let is_ancestor = |outer: &str, inner: &str| {
+        inner.len() > outer.len()
+            && inner.starts_with(outer)
+            && inner.as_bytes().get(outer.len()) == Some(&b'/')
+    };
+    if is_ancestor(pa, pb) {
+        Some((a, pa, b, pb))
+    } else if is_ancestor(pb, pa) {
+        Some((b, pb, a, pa))
+    } else {
+        None
     }
 }
 

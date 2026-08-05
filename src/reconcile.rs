@@ -1,6 +1,6 @@
-//! The pure decision core: given config + evaluated conditions + the mount
-//! table, decide what each logical mount should do. No I/O here — everything
-//! is unit-testable.
+//! The pure decision core: given config + evaluated conditions + what the
+//! engine remembers, decide what each logical mount should do. No I/O here —
+//! everything is unit-testable.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
@@ -29,6 +29,21 @@ impl EvalCtx {
         let all_ok = when.all_of.iter().all(|c| self.cond_holds(c));
         let any_ok = when.any_of.is_empty() || when.any_of.iter().any(|c| self.cond_holds(c));
         all_ok && any_ok
+    }
+
+    /// A stable fingerprint of the world, used to invalidate a retry backoff
+    /// when the conditions that justified it have changed.
+    pub fn fingerprint(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        for n in &self.matched_networks {
+            n.hash(&mut h);
+        }
+        for (d, up) in &self.deps_up {
+            d.hash(&mut h);
+            up.hash(&mut h);
+        }
+        h.finish()
     }
 }
 
@@ -59,6 +74,26 @@ pub fn candidates(spec: &MountSpec, ctx: &EvalCtx, default_timeout_ms: u64) -> V
         .collect()
 }
 
+/// Everything about one mount's current situation that a decision depends on.
+/// Built by the engine from config plus `MountRuntime`.
+#[derive(Debug, Clone, Default)]
+pub struct MountView {
+    pub mounted: bool,
+    /// A user explicitly unmounted this; leave it alone until conditions move.
+    pub user_suppressed: bool,
+    /// How long `when` has continuously failed to hold. `None` means it holds,
+    /// or that this is the first pass to see it gone.
+    pub gone_for: Option<Duration>,
+    /// The system woke recently, so condition readings are not yet trustworthy.
+    pub settling: bool,
+    /// Consecutive failed liveness probes of the endpoint we are mounted via.
+    pub health_failures: u32,
+    /// A confirmed higher-priority endpoint to move to.
+    pub migrate_to: Option<usize>,
+    /// The retry backoff has elapsed (or there was none).
+    pub retry_due: bool,
+}
+
 /// What the engine should do about one mount right now.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Decision {
@@ -67,31 +102,59 @@ pub enum Decision {
     /// Conditions hold but no endpoint is currently eligible (e.g. waiting
     /// for Tailscale). Not an error; recheck on the next hint.
     Waiting,
-    /// Mounted and conditions still hold.
+    /// Mounted and healthy.
     Keep,
-    /// Conditions stopped holding and policy says unmount.
-    Unmount,
+    /// Conditions stopped holding, and have stayed gone long enough to act.
+    Unmount { force: bool },
+    /// Mounted but the server has stopped answering: tear it down and remount.
+    Recover,
+    /// Move to a higher-priority endpoint.
+    Migrate(usize),
+    /// A user unmounted this deliberately.
+    Suppressed,
+    /// A retry is scheduled but not yet due.
+    Backoff,
     /// Nothing to do (not mounted and shouldn't be, or gone but policy
     /// says leave it).
     Idle,
 }
 
-pub fn decide(spec: &MountSpec, ctx: &EvalCtx, currently_mounted: bool) -> Decision {
+pub fn decide(spec: &MountSpec, ctx: &EvalCtx, view: &MountView) -> Decision {
     let should = ctx.when_holds(&spec.when);
-    match (should, currently_mounted) {
-        (true, true) => Decision::Keep,
+    match (should, view.mounted) {
+        (true, true) => {
+            if view.health_failures >= spec.policy.health_failures {
+                Decision::Recover
+            } else if let Some(target) = view.migrate_to {
+                Decision::Migrate(target)
+            } else {
+                Decision::Keep
+            }
+        }
         (true, false) => {
-            if eligible_endpoints(spec, ctx).is_empty() {
+            if view.user_suppressed {
+                Decision::Suppressed
+            } else if !view.retry_due {
+                Decision::Backoff
+            } else if eligible_endpoints(spec, ctx).is_empty() {
                 Decision::Waiting
             } else {
                 Decision::Attempt
             }
         }
         (false, true) => {
-            if spec.policy.unmount_when_gone {
-                Decision::Unmount
-            } else {
+            if !spec.policy.unmount_when_gone {
                 Decision::Idle
+            } else if view.settling {
+                // The network has not finished coming up after wake; a
+                // condition that reads false right now proves nothing.
+                Decision::Keep
+            } else {
+                let grace = Duration::from_secs(spec.policy.unmount_grace_secs);
+                match view.gone_for {
+                    Some(gone) if gone >= grace => Decision::Unmount { force: false },
+                    _ => Decision::Keep,
+                }
             }
         }
         (false, false) => Decision::Idle,
@@ -116,6 +179,9 @@ pub struct EndpointExplain {
     /// None when no probe was run).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reachable: Option<bool>,
+    /// True when this is the endpoint the mount is currently realized via.
+    #[serde(default)]
+    pub current: bool,
 }
 
 /// Full answer to "why is/isn't this mounted right now".
@@ -128,11 +194,14 @@ pub struct Explanation {
     pub when_all_of: Vec<CondExplain>,
     pub endpoints: Vec<EndpointExplain>,
     pub decision: String,
+    /// The lifecycle state the daemon is tracking, e.g. `suspect`.
+    #[serde(default)]
+    pub state: String,
 }
 
 /// Explain a mount's evaluation. Pure — probe results are filled in later
 /// by the engine for eligible endpoints.
-pub fn explain(spec: &MountSpec, ctx: &EvalCtx, mounted: bool) -> Explanation {
+pub fn explain(spec: &MountSpec, ctx: &EvalCtx, view: &MountView) -> Explanation {
     let cond_explain = |c: &CondRef| CondExplain {
         cond: c.to_string(),
         holds: ctx.cond_holds(c),
@@ -151,27 +220,30 @@ pub fn explain(spec: &MountSpec, ctx: &EvalCtx, mounted: bool) -> Explanation {
                 eligible: blocked_by.is_none(),
                 blocked_by,
                 reachable: None,
+                current: false,
             }
         })
         .collect();
     Explanation {
         name: spec.name.clone(),
-        mounted,
+        mounted: view.mounted,
         should_mount: ctx.when_holds(&spec.when),
         when_any_of: spec.when.any_of.iter().map(cond_explain).collect(),
         when_all_of: spec.when.all_of.iter().map(cond_explain).collect(),
         endpoints,
-        decision: format!("{:?}", decide(spec, ctx, mounted)),
+        decision: format!("{:?}", decide(spec, ctx, view)),
+        state: String::new(),
     }
 }
 
 /// Exponential backoff with a cap: 0 -> start, then doubling to max.
+/// Saturating, so a large configured value can never panic the reconcile path.
 pub fn next_backoff(current: Option<Duration>, retry: &Retry) -> Duration {
     let start = Duration::from_secs(retry.start_secs);
     let max = Duration::from_secs(retry.max_secs);
     match current {
         None => start.min(max),
-        Some(cur) => (cur * 2).min(max),
+        Some(cur) => cur.checked_mul(2).unwrap_or(max).min(max),
     }
 }
 
@@ -235,6 +307,23 @@ mountpoint = "~/mnt/pinned"
         c
     }
 
+    /// A view for a mount that is not mounted and has no pending retry.
+    fn absent() -> MountView {
+        MountView {
+            retry_due: true,
+            ..Default::default()
+        }
+    }
+
+    /// A view for a healthy mounted share.
+    fn present() -> MountView {
+        MountView {
+            mounted: true,
+            retry_due: true,
+            ..Default::default()
+        }
+    }
+
     #[test]
     fn empty_when_clause_always_holds() {
         let w = WhenClause::default();
@@ -296,31 +385,158 @@ mountpoint = "~/mnt/pinned"
         let cfg = cfg();
         let m = cfg.mount("nas").unwrap();
 
-        assert_eq!(decide(m, &ctx(true, false), false), Decision::Attempt);
-        assert_eq!(decide(m, &ctx(true, false), true), Decision::Keep);
-        assert_eq!(decide(m, &ctx(false, false), true), Decision::Unmount);
-        assert_eq!(decide(m, &ctx(false, false), false), Decision::Idle);
+        assert_eq!(decide(m, &ctx(true, false), &absent()), Decision::Attempt);
+        assert_eq!(decide(m, &ctx(true, false), &present()), Decision::Keep);
+        assert_eq!(decide(m, &ctx(false, false), &absent()), Decision::Idle);
+    }
+
+    // ---- hysteresis (the review's Critical finding) ----
+
+    #[test]
+    fn conditions_gone_briefly_does_not_unmount() {
+        let cfg = cfg();
+        let m = cfg.mount("nas").unwrap();
+        let view = MountView {
+            gone_for: Some(Duration::from_secs(5)), // default grace is 30s
+            ..present()
+        };
+        assert_eq!(decide(m, &ctx(false, false), &view), Decision::Keep);
+    }
+
+    #[test]
+    fn conditions_gone_for_the_full_grace_unmounts_politely() {
+        let cfg = cfg();
+        let m = cfg.mount("nas").unwrap();
+        let view = MountView {
+            gone_for: Some(Duration::from_secs(30)),
+            ..present()
+        };
+        assert_eq!(
+            decide(m, &ctx(false, false), &view),
+            Decision::Unmount { force: false },
+            "policy unmounts must never force: a busy mount would lose writes"
+        );
+    }
+
+    #[test]
+    fn first_pass_seeing_conditions_gone_never_unmounts() {
+        let cfg = cfg();
+        let m = cfg.mount("nas").unwrap();
+        let view = MountView {
+            gone_for: None,
+            ..present()
+        };
+        assert_eq!(decide(m, &ctx(false, false), &view), Decision::Keep);
+    }
+
+    #[test]
+    fn a_settling_system_never_unmounts_however_long_conditions_have_been_gone() {
+        // The observed production failure: 147ms after wake, conditions read
+        // false and a healthy Time Machine mount was force-unmounted.
+        let cfg = cfg();
+        let m = cfg.mount("nas").unwrap();
+        let view = MountView {
+            gone_for: Some(Duration::from_secs(3600)),
+            settling: true,
+            ..present()
+        };
+        assert_eq!(decide(m, &ctx(false, false), &view), Decision::Keep);
+    }
+
+    // ---- health / recovery ----
+
+    #[test]
+    fn a_mount_whose_endpoint_stopped_answering_is_recovered() {
+        let cfg = cfg();
+        let m = cfg.mount("nas").unwrap();
+        let view = MountView {
+            health_failures: 3, // default threshold
+            ..present()
+        };
+        assert_eq!(decide(m, &ctx(true, true), &view), Decision::Recover);
+    }
+
+    #[test]
+    fn health_failures_below_the_threshold_keep_the_mount() {
+        let cfg = cfg();
+        let m = cfg.mount("nas").unwrap();
+        let view = MountView {
+            health_failures: 2,
+            ..present()
+        };
+        assert_eq!(decide(m, &ctx(true, true), &view), Decision::Keep);
+    }
+
+    #[test]
+    fn recovery_outranks_migration() {
+        let cfg = cfg();
+        let m = cfg.mount("nas").unwrap();
+        let view = MountView {
+            health_failures: 5,
+            migrate_to: Some(0),
+            ..present()
+        };
+        assert_eq!(decide(m, &ctx(true, true), &view), Decision::Recover);
+    }
+
+    // ---- migration ----
+
+    #[test]
+    fn a_confirmed_better_endpoint_triggers_migration() {
+        let cfg = cfg();
+        let m = cfg.mount("nas").unwrap();
+        let view = MountView {
+            migrate_to: Some(0),
+            ..present()
+        };
+        assert_eq!(decide(m, &ctx(true, true), &view), Decision::Migrate(0));
+    }
+
+    // ---- manual unmount ----
+
+    #[test]
+    fn a_manually_unmounted_share_is_not_remounted() {
+        let cfg = cfg();
+        let m = cfg.mount("nas").unwrap();
+        let view = MountView {
+            user_suppressed: true,
+            ..absent()
+        };
+        assert_eq!(decide(m, &ctx(true, true), &view), Decision::Suppressed);
+    }
+
+    #[test]
+    fn a_pending_retry_defers_the_attempt() {
+        let cfg = cfg();
+        let m = cfg.mount("nas").unwrap();
+        let view = MountView {
+            retry_due: false,
+            ..absent()
+        };
+        assert_eq!(decide(m, &ctx(true, true), &view), Decision::Backoff);
     }
 
     #[test]
     fn should_mount_but_no_endpoint_yet_is_waiting() {
         let cfg = cfg();
-        // "pinned" wants tailscale in `when` AND its endpoint requires it, so
-        // craft the odd-but-possible state: when holds via a dep that's up,
-        // but endpoint eligibility fails. Use nas: home network matched via
-        // any_of, tailscale down, and pretend LAN endpoint needs a dep too.
         let mut m = cfg.mount("nas").unwrap().clone();
         m.endpoints[0].requires = Some(CondRef::Dep("tailscale".into()));
         m.endpoints[1].requires = Some(CondRef::Dep("tailscale".into()));
-        assert_eq!(decide(&m, &ctx(true, false), false), Decision::Waiting);
+        assert_eq!(decide(&m, &ctx(true, false), &absent()), Decision::Waiting);
     }
 
     #[test]
     fn unmount_when_gone_false_leaves_mount() {
         let cfg = cfg();
         let m = cfg.mount("pinned").unwrap();
-        assert_eq!(decide(m, &ctx(false, false), true), Decision::Idle);
+        let view = MountView {
+            gone_for: Some(Duration::from_secs(9999)),
+            ..present()
+        };
+        assert_eq!(decide(m, &ctx(false, false), &view), Decision::Idle);
     }
+
+    // ---- backoff ----
 
     #[test]
     fn backoff_doubles_to_cap() {
@@ -340,11 +556,33 @@ mountpoint = "~/mnt/pinned"
     }
 
     #[test]
+    fn backoff_saturates_instead_of_overflowing() {
+        let retry = Retry {
+            start_secs: 1,
+            max_secs: 300,
+        };
+        let huge = Duration::from_secs(u64::MAX / 2 + 1);
+        assert_eq!(next_backoff(Some(huge), &retry), Duration::from_secs(300));
+    }
+
+    #[test]
+    fn world_fingerprint_changes_with_the_world() {
+        let a = ctx(true, false).fingerprint();
+        let b = ctx(true, true).fingerprint();
+        let c = ctx(false, false).fingerprint();
+        assert_ne!(a, b);
+        assert_ne!(a, c);
+        assert_eq!(a, ctx(true, false).fingerprint());
+    }
+
+    // ---- explain ----
+
+    #[test]
     fn explain_reports_blocking_condition_per_endpoint() {
         let cfg = cfg();
         let m = cfg.mount("nas").unwrap();
         // away from home, tailscale up
-        let ex = explain(m, &ctx(false, true), false);
+        let ex = explain(m, &ctx(false, true), &absent());
         assert!(ex.should_mount);
         assert_eq!(ex.decision, "Attempt");
         assert_eq!(
@@ -371,7 +609,7 @@ mountpoint = "~/mnt/pinned"
     fn explain_idle_when_nothing_holds() {
         let cfg = cfg();
         let m = cfg.mount("nas").unwrap();
-        let ex = explain(m, &ctx(false, false), false);
+        let ex = explain(m, &ctx(false, false), &absent());
         assert!(!ex.should_mount);
         assert_eq!(ex.decision, "Idle");
     }
@@ -380,7 +618,7 @@ mountpoint = "~/mnt/pinned"
     fn explain_serializes_for_ipc() {
         let cfg = cfg();
         let m = cfg.mount("nas").unwrap();
-        let ex = explain(m, &ctx(true, true), true);
+        let ex = explain(m, &ctx(true, true), &present());
         let json = serde_json::to_string(&ex).unwrap();
         let back: Explanation = serde_json::from_str(&json).unwrap();
         assert_eq!(back, ex);

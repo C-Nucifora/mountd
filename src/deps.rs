@@ -59,25 +59,35 @@ pub async fn check(dep: &DepCheck) -> bool {
 }
 
 /// Evaluate every configured dep concurrently; returns name -> up.
+///
+/// Genuinely concurrent: each check is spawned, so the total cost is the
+/// slowest dep rather than the sum. With a wedged predicate — `tailscale
+/// status` after a bad wake, exactly the case this daemon exists for — the
+/// difference is every reconcile pass stalling for one timeout instead of all
+/// of them added together.
 pub async fn check_all(cfg: &Config) -> BTreeMap<String, bool> {
-    let futs = cfg.deps.iter().map(|(name, dep)| async move {
-        let up = check(dep).await;
-        (name.clone(), up)
-    });
-    futures_join_all(futs).await.into_iter().collect()
-}
+    let handles: Vec<_> = cfg
+        .deps
+        .iter()
+        .map(|(name, dep)| {
+            let name = name.clone();
+            let dep = dep.clone();
+            tokio::spawn(async move {
+                let up = check(&dep).await;
+                (name, up)
+            })
+        })
+        .collect();
 
-/// Minimal join_all to avoid pulling in the futures crate.
-async fn futures_join_all<T, F: std::future::Future<Output = T>>(
-    futs: impl Iterator<Item = F>,
-) -> Vec<T> {
-    let mut handles = Vec::new();
-    for f in futs {
-        handles.push(f);
-    }
-    let mut out = Vec::with_capacity(handles.len());
-    for f in handles {
-        out.push(f.await);
+    let mut out = BTreeMap::new();
+    for h in handles {
+        match h.await {
+            Ok((name, up)) => {
+                out.insert(name, up);
+            }
+            // A panicked check is a dep we cannot vouch for, which means down.
+            Err(e) => tracing::warn!("dependency check task failed: {e}"),
+        }
     }
     out
 }
@@ -155,6 +165,30 @@ mod tests {
         let start = std::time::Instant::now();
         assert!(!check(&d).await);
         assert!(start.elapsed() < Duration::from_secs(5));
+    }
+
+    #[tokio::test]
+    async fn deps_are_checked_concurrently() {
+        let toml = r#"
+[deps.slow_a]
+cmd = "/bin/sleep"
+args = ["1"]
+
+[deps.slow_b]
+cmd = "/bin/sleep"
+args = ["1"]
+"#;
+        let cfg = Config::from_toml_str(toml).unwrap();
+        let start = std::time::Instant::now();
+        let up = check_all(&cfg).await;
+        let elapsed = start.elapsed();
+
+        assert_eq!(up.len(), 2);
+        assert!(up["slow_a"] && up["slow_b"]);
+        assert!(
+            elapsed < Duration::from_millis(1800),
+            "two 1s deps must overlap, took {elapsed:?}"
+        );
     }
 
     #[test]

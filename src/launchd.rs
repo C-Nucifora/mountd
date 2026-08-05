@@ -15,7 +15,9 @@ pub fn plist_path() -> PathBuf {
 }
 
 /// Render the LaunchAgent plist. RunAtLoad doubles as the on-login trigger;
-/// KeepAlive gives crash-restart for free.
+/// KeepAlive restarts after a crash but not after a clean exit — an
+/// unconditional KeepAlive turns `mountctl uninstall`, and any deliberate
+/// shutdown, into a respawn loop.
 pub fn render_plist(daemon_path: &str, log_path: &str) -> String {
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -32,7 +34,10 @@ pub fn render_plist(daemon_path: &str, log_path: &str) -> String {
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
-    <true/>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
     <key>ProcessType</key>
     <string>Background</string>
     <key>StandardOutPath</key>
@@ -131,6 +136,15 @@ mod tests {
         assert!(p.contains("<key>KeepAlive</key>"));
         assert!(p.contains("<key>RunAtLoad</key>"));
         assert!(p.contains(LABEL));
+    }
+
+    #[test]
+    fn keepalive_does_not_respawn_after_a_clean_exit() {
+        // An unconditional <true/> makes `mountctl uninstall` and any
+        // deliberate shutdown into a restart loop.
+        let p = render_plist("/usr/local/bin/mountd", "/tmp/mountd.log");
+        assert!(p.contains("<key>SuccessfulExit</key>"), "{p}");
+        assert!(!p.contains("<key>KeepAlive</key>\n    <true/>"), "{p}");
     }
 
     #[test]
