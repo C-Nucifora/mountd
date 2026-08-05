@@ -855,6 +855,285 @@ mountpoint = "~/mnt/x"
         assert!(matches!(err, ConfigError::Invalid { .. }), "{err}");
     }
 
+    /// A minimal valid config with the given mount bodies spliced in.
+    fn with_mounts(bodies: &str) -> Result<Config, ConfigError> {
+        Config::from_toml_str(bodies)
+    }
+
+    #[test]
+    fn rejects_two_mounts_sharing_a_mountpoint() {
+        // Whichever mounts first makes the other read as mounted; when the
+        // second one's conditions lapse it unmounts the first one's volume.
+        let err = with_mounts(
+            r#"
+[[mount]]
+name = "a"
+protocol = "smb"
+share = "s"
+mountpoint = "/tmp/mountd-collide"
+  [[mount.endpoint]]
+  address = "10.0.0.1"
+
+[[mount]]
+name = "b"
+protocol = "smb"
+share = "s"
+mountpoint = "/tmp/mountd-collide/"
+  [[mount.endpoint]]
+  address = "10.0.0.2"
+"#,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, ConfigError::MountpointCollision { .. }),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn rejects_nested_mountpoints() {
+        let err = with_mounts(
+            r#"
+[[mount]]
+name = "outer"
+protocol = "smb"
+share = "s"
+mountpoint = "/tmp/mountd-nest"
+  [[mount.endpoint]]
+  address = "10.0.0.1"
+
+[[mount]]
+name = "inner"
+protocol = "smb"
+share = "s"
+mountpoint = "/tmp/mountd-nest/deeper"
+  [[mount.endpoint]]
+  address = "10.0.0.2"
+"#,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, ConfigError::MountpointNesting { .. }),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn a_shared_prefix_is_not_nesting() {
+        // /tmp/mountd-ab must not count as nested inside /tmp/mountd-a.
+        let cfg = with_mounts(
+            r#"
+[[mount]]
+name = "a"
+protocol = "smb"
+share = "s"
+mountpoint = "/tmp/mountd-a"
+  [[mount.endpoint]]
+  address = "10.0.0.1"
+
+[[mount]]
+name = "ab"
+protocol = "smb"
+share = "s"
+mountpoint = "/tmp/mountd-ab"
+  [[mount.endpoint]]
+  address = "10.0.0.2"
+"#,
+        );
+        assert!(cfg.is_ok(), "{:?}", cfg.err());
+    }
+
+    #[test]
+    fn rejects_a_relative_mountpoint() {
+        // Under launchd the working directory is `/`, so a relative path fails
+        // every attempt; run from a terminal it silently makes a junk dir.
+        let err = with_mounts(
+            r#"
+[[mount]]
+name = "a"
+protocol = "smb"
+share = "s"
+mountpoint = "~mnt/typo"
+  [[mount.endpoint]]
+  address = "10.0.0.1"
+"#,
+        )
+        .unwrap_err();
+        assert!(matches!(err, ConfigError::Invalid { .. }), "{err}");
+        assert!(err.to_string().contains("absolute"), "{err}");
+    }
+
+    #[test]
+    fn a_bare_mountpoint_name_resolves_against_mount_root() {
+        let cfg = with_mounts(
+            r#"
+[defaults]
+mount_root = "/tmp/mountd-root"
+
+[[mount]]
+name = "a"
+protocol = "smb"
+share = "s"
+mountpoint = "media"
+  [[mount.endpoint]]
+  address = "10.0.0.1"
+"#,
+        )
+        .unwrap();
+        assert_eq!(cfg.mounts[0].mountpoint, "/tmp/mountd-root/media");
+    }
+
+    #[test]
+    fn rejects_unbounded_retry_values() {
+        // Doubling an enormous backoff overflows Duration/Instant arithmetic
+        // inside the reconcile path.
+        let err = with_mounts(
+            r#"
+[[mount]]
+name = "a"
+protocol = "smb"
+share = "s"
+mountpoint = "/tmp/mountd-a"
+  [mount.policy.retry]
+  start_secs = 2
+  max_secs = 18446744073709551615
+  [[mount.endpoint]]
+  address = "10.0.0.1"
+"#,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("max_secs"), "{err}");
+    }
+
+    #[test]
+    fn rejects_a_start_longer_than_the_cap() {
+        let err = with_mounts(
+            r#"
+[[mount]]
+name = "a"
+protocol = "smb"
+share = "s"
+mountpoint = "/tmp/mountd-a"
+  [mount.policy.retry]
+  start_secs = 600
+  max_secs = 300
+  [[mount.endpoint]]
+  address = "10.0.0.1"
+"#,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("start_secs"), "{err}");
+    }
+
+    #[test]
+    fn rejects_probe_port_zero() {
+        assert!("tcp:0".parse::<Probe>().is_err());
+        assert!("tcp:445".parse::<Probe>().is_ok());
+        assert!("tcp:notaport".parse::<Probe>().is_err());
+        assert!("udp:53".parse::<Probe>().is_err());
+    }
+
+    #[test]
+    fn rejects_an_endpoint_address_that_looks_like_a_flag() {
+        let err = with_mounts(
+            r#"
+[[mount]]
+name = "a"
+protocol = "smb"
+share = "s"
+mountpoint = "/tmp/mountd-a"
+  [[mount.endpoint]]
+  address = "-o"
+"#,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("flag"), "{err}");
+    }
+
+    #[test]
+    fn validates_wake_on_lan_settings() {
+        let bad_mac = with_mounts(
+            r#"
+[[mount]]
+name = "a"
+protocol = "smb"
+share = "s"
+mountpoint = "/tmp/mountd-a"
+  [[mount.endpoint]]
+  address = "10.0.0.1"
+  [mount.endpoint.wake_on_lan]
+  mac = "not-a-mac"
+"#,
+        )
+        .unwrap_err();
+        assert!(bad_mac.to_string().contains("MAC"), "{bad_mac}");
+
+        let bad_bcast = with_mounts(
+            r#"
+[[mount]]
+name = "a"
+protocol = "smb"
+share = "s"
+mountpoint = "/tmp/mountd-a"
+  [[mount.endpoint]]
+  address = "10.0.0.1"
+  [mount.endpoint.wake_on_lan]
+  mac = "aa:bb:cc:dd:ee:ff"
+  broadcast = "nope"
+"#,
+        )
+        .unwrap_err();
+        assert!(bad_bcast.to_string().contains("broadcast"), "{bad_bcast}");
+
+        let good = with_mounts(
+            r#"
+[[mount]]
+name = "a"
+protocol = "smb"
+share = "s"
+mountpoint = "/tmp/mountd-a"
+  [[mount.endpoint]]
+  address = "10.0.0.1"
+  wol_wait_secs = 60
+  [mount.endpoint.wake_on_lan]
+  mac = "AA-BB-CC-DD-EE-FF"
+  broadcast = "10.0.0.255"
+  port = 7
+"#,
+        )
+        .unwrap();
+        let wol = good.mounts[0].endpoints[0].wake_on_lan.as_ref().unwrap();
+        assert_eq!(wol.port, 7);
+        assert_eq!(good.mounts[0].endpoints[0].wol_wait_secs, 60);
+    }
+
+    #[test]
+    fn a_bad_gateway_mac_names_the_network_not_a_mount() {
+        let err = Config::from_toml_str(
+            r#"
+[networks.office]
+subnet = "10.0.0.0/24"
+gateway_mac = "aa:bb:cc:dd:ee"
+"#,
+        )
+        .unwrap_err();
+        assert!(matches!(err, ConfigError::InvalidNetwork { .. }), "{err}");
+        assert!(err.to_string().contains("office"), "{err}");
+    }
+
+    #[test]
+    fn new_policy_defaults_are_conservative() {
+        let cfg = Config::from_toml_str(EXAMPLE).unwrap();
+        let p = &cfg.mount("nas-media").unwrap().policy;
+        assert_eq!(p.unmount_grace_secs, 30, "never unmount on one bad sample");
+        assert_eq!(p.health_failures, 3);
+        assert!(!p.allow_passwordless, "a guest mount must be opt-in");
+        assert!(!p.migrate, "migration costs an unmount/remount");
+        assert!(p.unmount_before_sleep);
+        assert_eq!(cfg.defaults.wake_settle_secs, 20);
+        assert_eq!(cfg.defaults.health_interval_secs, 30);
+    }
+
     #[test]
     fn rejects_network_in_requires() {
         let toml = r#"

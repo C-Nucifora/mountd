@@ -47,14 +47,26 @@ pub fn normalize_mountpoint(path: &str) -> PathBuf {
     let trimmed = path.trim_end_matches('/');
     let trimmed = if trimmed.is_empty() { path } else { trimmed };
     let expanded = expand_tilde(trimmed);
-    match (expanded.parent(), expanded.file_name()) {
-        (Some(parent), Some(name)) if !parent.as_os_str().is_empty() => {
-            match std::fs::canonicalize(parent) {
-                Ok(real) => real.join(name),
-                Err(_) => expanded,
+
+    // Walk up to the deepest ancestor that exists, canonicalize that, and
+    // re-append what we walked past. Resolving only the immediate parent would
+    // give different answers for `/tmp/x` and `/tmp/x/y` when `x` has not been
+    // created yet, which is exactly when nesting checks need to agree.
+    let mut suffix: Vec<std::ffi::OsString> = Vec::new();
+    let mut cur = expanded.as_path();
+    loop {
+        let (Some(parent), Some(name)) = (cur.parent(), cur.file_name()) else {
+            return expanded;
+        };
+        suffix.push(name.to_os_string());
+        if let Ok(real) = std::fs::canonicalize(parent) {
+            let mut out = real;
+            for component in suffix.iter().rev() {
+                out.push(component);
             }
+            return out;
         }
-        _ => expanded,
+        cur = parent;
     }
 }
 
@@ -451,9 +463,27 @@ mountpoint = "~/mnt/nfs1"
     }
 
     #[test]
-    fn normalize_leaves_unknown_parents_alone() {
+    fn normalize_resolves_through_missing_intermediate_directories() {
+        // Both of these must agree about the same prefix even though the
+        // middle directory does not exist yet — the nesting check in config
+        // validation compares them as strings.
+        let shallow = normalize_mountpoint("/tmp/mountd-test-nest");
+        let deep = normalize_mountpoint("/tmp/mountd-test-nest/inner");
+        assert!(
+            deep.starts_with(&shallow),
+            "{deep:?} should sit under {shallow:?}"
+        );
+    }
+
+    #[test]
+    fn normalize_leaves_a_wholly_unknown_path_alone() {
         let p = normalize_mountpoint("/nonexistent-parent-xyz/share");
         assert_eq!(p, PathBuf::from("/nonexistent-parent-xyz/share"));
+    }
+
+    #[test]
+    fn normalize_handles_the_root_directory() {
+        assert_eq!(normalize_mountpoint("/"), PathBuf::from("/"));
     }
 
     #[test]
