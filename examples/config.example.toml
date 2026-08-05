@@ -4,8 +4,17 @@
 [defaults]
 probe_timeout_ms   = 1500   # default per-endpoint probe deadline
 debounce_secs      = 3      # quiet window after a hint before reconciling
-poll_interval_secs = 5      # reconcile cadence (event-driven wakeups planned)
-mount_root         = "~/mnt"
+poll_interval_secs = 5      # reconcile cadence (events also trigger a pass)
+mount_root         = "~/mnt"  # a mountpoint given as a bare name resolves here
+# After waking, the network has not finished coming up, so conditions read
+# false. For this long, a condition that stops holding is not acted on.
+wake_settle_secs   = 20
+# How often a mounted share's endpoint is re-probed for liveness. This is the
+# only thing that can notice a server that vanished: the mount table never
+# talks to the server, so a dead mount still reads as mounted.
+health_interval_secs = 30
+# Total budget for unmounting everything when the system announces sleep.
+sleep_unmount_budget_secs = 8
 
 # ── Network fingerprints ─────────────────────────────────────────────
 # A network matches when a local address is inside `subnet` and, if set,
@@ -31,6 +40,13 @@ protocol   = "smb"
 share      = "media"
 username   = "me"                 # credential comes from the login Keychain
 mountpoint = "~/mnt/nas-media"
+# Which Keychain item to read. Defaults to the endpoint address being
+# mounted; set it so one saved credential covers every endpoint of this NAS
+# (LAN IP, tailnet IP, MagicDNS name).
+keychain_server = "192.168.1.10"
+# SMB defaults to `-o soft` so a dead server makes file operations fail
+# instead of blocking Finder. Override only if you know why.
+# options  = "soft"
 
   [mount.when]
   # mount whenever we're home OR the tailnet is up
@@ -55,8 +71,37 @@ mountpoint = "~/mnt/nas-media"
   address  = "nas.example.ts.net"  # MagicDNS last resort
   requires = "dep:tailscale"
 
+  # Wake a sleeping server instead of just reporting it unreachable. The
+  # packet is sent at most once per wol_wait_secs, then the ordinary probe
+  # gate decides when the share is actually ready.
+  # [[mount.endpoint]]
+  # address       = "192.168.1.10"
+  # only_if       = "network:home"
+  # wol_wait_secs = 45
+  #   [mount.endpoint.wake_on_lan]
+  #   mac       = "aa:bb:cc:dd:ee:ff"   # `:` or `-` separators both work
+  #   broadcast = "192.168.1.255"       # subnet broadcast beats 255.255.255.255
+  #   port      = 9
+
   [mount.policy]
   unmount_when_gone = true         # clean unmount when `when` stops holding
+  # `when` must stay false this long before the mount is actually removed.
+  # A single bad sample — a slow `tailscale status`, an ARP cache that has
+  # not repopulated after wake — must never cost a healthy mount.
+  unmount_grace_secs = 30
+  # Consecutive failed liveness probes before the mount is declared dead and
+  # rebuilt (via a lower-priority endpoint if the current one is gone).
+  health_failures = 3
+  # Move back to a higher-priority endpoint when one becomes reachable.
+  # Off by default: it costs an unmount/remount, and is skipped if the share
+  # is busy.
+  migrate = false
+  migrate_confirmations = 2
+  # Unmount cleanly when the system announces sleep.
+  unmount_before_sleep = true
+  # Mount without a password if the Keychain lookup fails. Leave this off:
+  # against a server with guest access it silently mounts as nobody.
+  allow_passwordless = false
   retry = { start_secs = 2, max_secs = 300 }
 
 [[mount]]

@@ -1,23 +1,41 @@
 // mountd menu bar client. Renders `mountctl status --json` as an
 // NSStatusItem menu with per-mount actions. Pure AppKit, no Xcode project —
 // built by menubar/build.sh with swiftc.
+//
+// The whole point of this app is to be the thing that still works when a file
+// server has vanished, so two rules govern it: nothing touches a mountpoint on
+// the main thread, and every call into `mountctl` is bounded in time.
 
 import AppKit
 import Foundation
 
-struct MountStatus: Codable {
+struct MountStatus: Codable, Equatable {
   let name: String
   let state: String
   let mountpoint: String
   let mounted_via: String?
   let last_error: String?
+  /// Added in v0.4; older daemons omit it, so it must stay optional.
+  let state_kind: String?
+
+  /// Prefer the structured discriminant, fall back to the string prefix that
+  /// v0.3 daemons emit.
+  var kind: String {
+    if let k = state_kind, !k.isEmpty { return k }
+    for prefix in ["mounted", "error", "waiting", "suspect", "recovering", "waking", "migrating"]
+    where state.hasPrefix(prefix) {
+      return prefix
+    }
+    return "unknown"
+  }
 }
 
 func expandTilde(_ path: String) -> String {
   (path as NSString).expandingTildeInPath
 }
 
-/// Locate mountctl: next to common install locations, then $PATH.
+/// Locate mountctl. Only absolute candidates: under launchd the PATH is
+/// /usr/bin:/bin, so a PATH search would find nothing useful anyway.
 func mountctlPath() -> String? {
   let candidates = [
     expandTilde("~/.cargo/bin/mountctl"),
@@ -35,25 +53,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
   let menu = NSMenu()
   var statuses: [MountStatus] = []
   var daemonError: String?
+  /// True while a menu is being tracked, so a refresh landing mid-navigation
+  /// does not rebuild the items under the user's cursor.
+  var menuIsOpen = false
+  var pendingRebuild = false
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     menu.delegate = self
     statusItem.menu = menu
     setIcon(symbol: "externaldrive", description: "mountd")
+    rebuildMenu()
     refresh()
-    Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
+
+    let timer = Timer(timeInterval: 15, repeats: true) { [weak self] _ in
       self?.refresh()
     }
+    // .common so the poll keeps running while a menu is open.
+    RunLoop.main.add(timer, forMode: .common)
   }
 
   func menuWillOpen(_ menu: NSMenu) {
+    menuIsOpen = true
     refresh()
+  }
+
+  func menuDidClose(_ menu: NSMenu) {
+    menuIsOpen = false
+    if pendingRebuild {
+      pendingRebuild = false
+      rebuildMenu()
+    }
   }
 
   // MARK: - mountctl plumbing
 
-  func runMountctl(_ args: [String], completion: @escaping (Data?, String?) -> Void) {
+  /// Run mountctl off the main thread with a hard deadline.
+  ///
+  /// Without the deadline a wedged daemon strands one dispatch worker and one
+  /// live child process per 15-second tick; after a few minutes the pool is
+  /// exhausted, refreshes stop starting, and the icon silently freezes showing
+  /// state that may be hours stale.
+  func runMountctl(
+    _ args: [String], timeout: TimeInterval = 20,
+    completion: @escaping (Data?, String?) -> Void
+  ) {
     guard let ctl = mountctlPath() else {
       completion(nil, "mountctl not found (install with `cargo install --path .`)")
       return
@@ -66,20 +110,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
       let errPipe = Pipe()
       proc.standardOutput = outPipe
       proc.standardError = errPipe
+
+      // Drain both pipes concurrently: reading one to EOF before the other can
+      // deadlock if the child fills the pipe buffer on the one we ignore.
+      var outData = Data()
+      var errData = Data()
+      let drain = DispatchGroup()
+      for (pipe, sink) in [(outPipe, { outData = $0 }), (errPipe, { errData = $0 })] {
+        drain.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+          sink(pipe.fileHandleForReading.readDataToEndOfFile())
+          drain.leave()
+        }
+      }
+
       do {
         try proc.run()
       } catch {
         DispatchQueue.main.async { completion(nil, error.localizedDescription) }
         return
       }
-      let out = outPipe.fileHandleForReading.readDataToEndOfFile()
-      let err = errPipe.fileHandleForReading.readDataToEndOfFile()
+
+      let deadline = DispatchTime.now() + timeout
+      let timedOut = DispatchQueue.global(qos: .userInitiated)
+      var killed = false
+      let watchdog = DispatchWorkItem {
+        if proc.isRunning {
+          killed = true
+          proc.terminate()
+        }
+      }
+      timedOut.asyncAfter(deadline: deadline, execute: watchdog)
+
       proc.waitUntilExit()
+      watchdog.cancel()
+      _ = drain.wait(timeout: .now() + 2)
+
       DispatchQueue.main.async {
-        if proc.terminationStatus == 0 {
-          completion(out, nil)
+        if killed {
+          completion(nil, "mountctl timed out after \(Int(timeout))s")
+        } else if proc.terminationStatus == 0 {
+          completion(outData, nil)
         } else {
-          let msg = String(data: err, encoding: .utf8)?
+          let msg = String(data: errData, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
           completion(nil, msg?.isEmpty == false ? msg : "mountctl exited \(proc.terminationStatus)")
         }
@@ -90,15 +163,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
   func refresh() {
     runMountctl(["status", "--json"]) { [weak self] data, error in
       guard let self else { return }
+      let newStatuses: [MountStatus]
+      let newError: String?
       if let data, let parsed = try? JSONDecoder().decode([MountStatus].self, from: data) {
-        self.statuses = parsed
-        self.daemonError = nil
+        newStatuses = parsed
+        newError = nil
       } else {
-        self.statuses = []
-        self.daemonError = error ?? "could not parse status"
+        newStatuses = []
+        newError = error ?? "could not parse status"
       }
-      self.rebuildMenu()
+
+      // Only touch the menu when something actually changed. Rebuilding while
+      // the user is navigating swaps items out from under the cursor, and the
+      // submenu's first item is "Reveal in Finder" when mounted but "Mount
+      // Now" when not — so a mistimed rebuild turns one click into another.
+      let changed = newStatuses != self.statuses || newError != self.daemonError
+      self.statuses = newStatuses
+      self.daemonError = newError
       self.updateIcon()
+      guard changed else { return }
+      if self.menuIsOpen {
+        self.pendingRebuild = true
+      } else {
+        self.rebuildMenu()
+      }
     }
   }
 
@@ -109,6 +197,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         alert.messageText = "mountd"
         alert.informativeText = error
         alert.alertStyle = .warning
+        // An accessory app has no active window; without this the panel can
+        // appear behind whatever is frontmost and never be seen.
+        NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
       }
       self?.refresh()
@@ -124,22 +215,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
   }
 
   func updateIcon() {
+    let kinds = Set(statuses.map(\.kind))
     if daemonError != nil {
       setIcon(symbol: "externaldrive.badge.questionmark", description: "mountd: daemon unreachable")
-    } else if statuses.contains(where: { $0.state.hasPrefix("error") }) {
+    } else if kinds.contains("error") {
       setIcon(symbol: "externaldrive.badge.exclamationmark", description: "mountd: error")
-    } else if statuses.contains(where: { $0.state.hasPrefix("mounted") }) {
+    } else if kinds.contains("suspect") || kinds.contains("recovering") {
+      setIcon(
+        symbol: "externaldrive.trianglebadge.exclamationmark",
+        description: "mountd: a mount is not responding")
+    } else if kinds.contains("mounted") {
       setIcon(symbol: "externaldrive.fill.badge.checkmark", description: "mountd: mounted")
     } else {
       setIcon(symbol: "externaldrive", description: "mountd: no mounts active")
     }
   }
 
-  func glyph(for state: String) -> String {
-    if state.hasPrefix("mounted") { return "🟢" }
-    if state.hasPrefix("error") { return "🔴" }
-    if state.hasPrefix("waiting") { return "🟡" }
-    return "⚪️"
+  func glyph(for status: MountStatus) -> String {
+    switch status.kind {
+    case "mounted": return "🟢"
+    case "error": return "🔴"
+    case "suspect", "recovering", "migrating": return "🟠"
+    case "waiting", "waking": return "🟡"
+    default: return "⚪️"
+    }
   }
 
   func rebuildMenu() {
@@ -156,15 +255,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     for s in statuses {
       let item = NSMenuItem(
-        title: "\(glyph(for: s.state)) \(s.name) — \(s.state)",
+        title: "\(glyph(for: s)) \(s.name) — \(s.state)",
         action: nil, keyEquivalent: "")
       let sub = NSMenu()
-      let mounted = s.state.hasPrefix("mounted")
+      let mounted = s.kind == "mounted" || s.kind == "suspect"
       if mounted {
         sub.addItem(
           closureItem("Reveal in Finder") { [weak self] in
-            NSWorkspace.shared.open(URL(fileURLWithPath: expandTilde(s.mountpoint)))
-            self?.refresh()
+            self?.reveal(s)
           })
         sub.addItem(
           closureItem("Unmount") { [weak self] in
@@ -193,13 +291,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     menu.addItem(closureItem("Reload Config") { [weak self] in self?.action(["reload"]) })
     menu.addItem(
       closureItem("Edit Config…") {
-        NSWorkspace.shared.open(URL(fileURLWithPath: expandTilde("~/.config/mountd/config.toml")))
+        NSWorkspace.shared.open(
+          URL(fileURLWithPath: expandTilde("~/.config/mountd/config.toml"), isDirectory: false))
       })
     menu.addItem(.separator())
     menu.addItem(
       closureItem("Quit mountd Menu Bar") {
         NSApp.terminate(nil)
       })
+  }
+
+  /// Open a mountpoint in Finder without ever touching it on the main thread.
+  ///
+  /// The status behind this menu item can be up to a poll interval stale, and
+  /// a share whose server died still looks mounted. `URL(fileURLWithPath:)`
+  /// stats the path to decide directory-ness unless told, and NSWorkspace then
+  /// resolves it — on a dead SMB mount that blocks for as long as the SMB
+  /// client takes to give up, freezing the status item and then Finder.
+  func reveal(_ status: MountStatus) {
+    let path = expandTilde(status.mountpoint)
+    DispatchQueue.global(qos: .userInitiated).async {
+      NSWorkspace.shared.open(URL(fileURLWithPath: path, isDirectory: true))
+      DispatchQueue.main.async { [weak self] in self?.refresh() }
+    }
   }
 
   func disabled(_ title: String) -> NSMenuItem {

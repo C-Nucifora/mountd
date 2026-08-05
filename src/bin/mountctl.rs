@@ -97,6 +97,9 @@ async fn main() -> Result<()> {
                             }
                         }
                     }
+                    if !ex.state.is_empty() {
+                        println!("  state: {}", ex.state);
+                    }
                     println!("  endpoints (priority order):");
                     for ep in &ex.endpoints {
                         let state = match (&ep.blocked_by, ep.reachable) {
@@ -105,7 +108,8 @@ async fn main() -> Result<()> {
                             (None, Some(false)) => "eligible, probe FAILED".into(),
                             (None, None) => "eligible, not probed".into(),
                         };
-                        println!("    {}  {}", ep.address, state);
+                        let marker = if ep.current { " <- in use" } else { "" };
+                        println!("    {}  {}{}", ep.address, state, marker);
                     }
                 }
             }

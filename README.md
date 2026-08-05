@@ -42,11 +42,27 @@ Existing tools miss one or more of these:
   Mount enumeration uses `getfsstat(MNT_NOWAIT)`, which cannot block on a
   dead mount.
 - **Soft mounts by default** — NFS gets
-  `soft,intr,deadtimeout=60,retrycnt=0` so the kernel reaps dead mounts
-  itself; SMB mounts with `mount_smbfs -N` (credentials from the login
-  Keychain, never an invisible auth prompt).
-- **Escalating unmount** — `diskutil unmount` → `umount` → `umount -f`.
-- Fixed user-owned mountpoints under `~/mnt` — no `/Volumes/share-1` drift.
+  `soft,intr,deadtimeout=60,retrycnt=0,nfc,tcp` and SMB gets `-o soft`, so a
+  server that disappears makes file operations fail instead of blocking
+  Finder. SMB uses `mount_smbfs -N` so it never raises an invisible auth
+  prompt; the daemon fetches the Keychain credential itself (see below).
+- **Health loop** — the mount table is built from `getfsstat(MNT_NOWAIT)`,
+  which never contacts the server and so can never tell you a mount has died.
+  Each mounted share's endpoint is re-probed on an interval; after
+  `health_failures` consecutive failures the dead mount is torn down and
+  rebuilt, via a lower-priority endpoint if the current one is gone.
+- **Unmounting requires sustained evidence** — a mount is only removed once
+  `when` has stayed false for `unmount_grace_secs`, and never within
+  `wake_settle_secs` of waking, when the network has not come up and every
+  condition reads false. Policy unmounts are polite (`diskutil unmount` →
+  `umount`); the forceful rungs (`diskutil unmount force` → `umount -f`) are
+  reserved for an explicit `mountctl unmount` and for a server the probe has
+  proved is gone.
+- **Clean unmount before sleep** — IOKit power notifications, bounded by
+  `sleep_unmount_budget_secs`; the acknowledgement is always sent, so a wedged
+  share can never hold the system awake.
+- Fixed user-owned mountpoints under `mount_root` (default `~/mnt`) — no
+  `/Volumes/share-1` drift.
 
 ## Install
 
@@ -113,9 +129,25 @@ reads `~/.nsmbrc`). Set `keychain_server` on a mount so one credential item
 covers every endpoint (LAN IP, tailnet IP, hostname); it defaults to the
 endpoint address being mounted. The first read of an item created by
 another app triggers a one-time macOS permission prompt — click "Always
-Allow". Trade-off to know about: the password is briefly visible to local
-`ps` during the mount syscall (it is never written to disk, and is redacted
-from logs and error messages).
+Allow".
+
+If the credential cannot be read the mount **fails** rather than silently
+retrying without one: against a server with guest access, a passwordless
+mount succeeds as nobody and nothing anywhere says so. `mountctl status`
+names the reason (no Keychain item, prompt not answered, read denied). Set
+`policy.allow_passwordless` if you genuinely want anonymous mounts.
+
+Trade-off to know about: the password is visible to local `ps` for the
+lifetime of the mount attempt — bounded at 15 seconds, not merely "during
+the syscall" — and again on each retry. It is never written to disk, and is
+redacted from logs and error messages in both its encoded and raw forms.
+
+One macOS quirk worth knowing: `security -w` returns the password
+hex-encoded whenever it contains anything outside printable ASCII (an
+accented letter, an emoji, a tab). mountd detects that and decodes it, using
+`security -g` to tell a genuinely-encoded value apart from a password that
+merely looks like hex. Before v0.4 any such password produced
+`Authentication error` with no explanation.
 
 ## CLI
 
@@ -124,7 +156,7 @@ mountctl status [--json]    # state of every mount (JSON feeds SwiftBar etc.)
 mountctl explain [name]     # why is/isn't this mounted: conditions, endpoint
                             # eligibility, live probe results
 mountctl mount <name>       # force an attempt (ignores `when`, honors probes)
-mountctl unmount <name>
+mountctl unmount <name>     # unmount and stay unmounted until conditions move
 mountctl reload             # re-read config
 mountctl poke               # trigger a reconcile pass now
 mountctl install|uninstall  # manage the LaunchAgent
@@ -132,13 +164,14 @@ mountctl install|uninstall  # manage the LaunchAgent
 
 ```
 $ mountctl explain nas-media
-nas-media: not mounted — decision: Attempt
+nas-media: mounted — decision: Keep
   when any_of:
     ✗ network:home
     ✓ dep:tailscale
+  state: mounted via 100.64.0.10
   endpoints (priority order):
     192.168.1.10  skipped (network:home not met)
-    100.64.0.10   eligible, probe ok
+    100.64.0.10   eligible, probe ok <- in use
 ```
 
 ## Menu bar app
@@ -151,25 +184,67 @@ cd menubar && ./build.sh install   # builds, ad-hoc signs, installs to
                                    # ~/Applications, registers a login item
 ```
 
-The icon reflects aggregate state (drive+checkmark = mounted, exclamation =
-error, question mark = daemon unreachable). The menu shows each mount with
-its live state and offers Mount Now / Unmount / Reveal in Finder per mount,
-plus Reconcile Now, Reload Config, and Edit Config. It talks to the daemon
-through `mountctl`, so it needs no extra permissions or entitlements.
+The icon reflects aggregate state (drive+checkmark = mounted, triangle =
+a mount stopped responding, exclamation = error, question mark = daemon
+unreachable). The menu shows each mount with its live state and offers Mount
+Now / Unmount / Reveal in Finder per mount, plus Reconcile Now, Reload
+Config, and Edit Config. It talks to the daemon through `mountctl`, so it
+needs no extra permissions or entitlements.
 
-## Status / roadmap
+Every `mountctl` call is off the main thread with a hard deadline, and
+Reveal in Finder never touches the mountpoint on the main thread — a share
+whose server died still looks mounted, and stat-ing it would freeze the
+status item and then Finder.
 
-v0.2. Working: config, fingerprinting, dep checks, probe-gated ordered
-endpoints, reconcile loop, IPC + CLI, LaunchAgent install, event-driven
-wakeups (routing-socket monitor feeding the debounced reconciler, with the
-poll as a safety net), wake-from-sleep detection (monotonic vs wall-clock
-gap), and `mountctl explain`. Planned:
+## Where things live
 
-- Pre-sleep clean unmount via IOKit power notifications (wake is already
-  detected; the willSleep window needs IOKit registration)
-- Health loop with child-process liveness probes and a SUSPECT state
-- Opt-in migration to a better endpoint when one appears
-- Wake-on-LAN
+| What | Path |
+| --- | --- |
+| Config | `~/.config/mountd/config.toml` |
+| IPC socket | `~/Library/Application Support/mountd/mountd.sock` (mode 0600) |
+| Daemon log | `~/Library/Logs/mountd.log` |
+| Daemon LaunchAgent | `~/Library/LaunchAgents/org.mountd.agent.plist` |
+| Menu bar LaunchAgent | `~/Library/LaunchAgents/org.mountd.menubar.plist` |
+| Menu bar app | `~/Applications/Mountd Menu Bar.app` |
+
+The menu bar app finds `mountctl` by checking `~/.cargo/bin`,
+`/opt/homebrew/bin`, then `/usr/local/bin` — absolute paths only, because
+launchd's `PATH` is just `/usr/bin:/bin`.
+
+### IPC protocol
+
+One newline-delimited JSON request per connection, one JSON response back.
+Requests are tagged by `cmd`; anything else gets `{"ok":false,"error":…}`.
+
+```sh
+$ echo '{"cmd":"status"}' | nc -U ~/Library/Application\ Support/mountd/mountd.sock
+{"ok":true,"status":[{"name":"nas-media","state":"mounted via 192.168.1.10",…}]}
+```
+
+`{"cmd":"mount","name":"nas-media"}`, `unmount`, `reload`, `poke`, and
+`{"cmd":"explain","name":…}` (name optional) round out the set. `state` is a
+human string whose prefix is stable; `state_kind` is the machine-readable
+discriminant (`mounted`, `suspect`, `waiting`, `waking`, `migrating`,
+`recovering`, `error`, `idle`, `unmounted`, `unknown`).
+
+## Status
+
+v0.4 — the roadmap is complete. Working: config, fingerprinting, dep checks,
+probe-gated ordered endpoints, per-mount concurrent reconcile, IPC + CLI,
+LaunchAgent install, event-driven wakeups (routing-socket monitor feeding the
+debounced reconciler, with the poll as a safety net), `mountctl explain`,
+plus everything that was previously planned:
+
+- **Pre-sleep clean unmount** via IOKit power notifications, with
+  monotonic-clock-gap detection kept as a fallback for wake
+- **Health loop** with endpoint liveness probes, a SUSPECT state, and
+  automatic recovery onto a surviving endpoint
+- **Opt-in migration** to a higher-priority endpoint when one appears
+  (`policy.migrate`), skipped when the share is busy
+- **Wake-on-LAN** per endpoint (`[mount.endpoint.wake_on_lan]`)
+
+Ideas, not commitments: NetFS `NetFSMountURLAsync` to keep the SMB password
+out of argv entirely, and per-mount bandwidth-aware endpoint scoring.
 
 ## License
 

@@ -30,7 +30,7 @@ cat > "$APP/Contents/Info.plist" <<'EOF'
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.3.0</string>
+    <string>0.4.0</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>LSUIElement</key>
@@ -72,6 +72,14 @@ if [[ "${1:-}" == "install" ]]; then
     </array>
     <key>RunAtLoad</key>
     <true/>
+    <!-- Restart if it crashes, but honor the Quit menu item (a clean exit).
+         Without this a single crash silently removes the icon until the next
+         login, while the daemon keeps mounting and unmounting unobserved. -->
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
 </dict>
 </plist>
 EOF

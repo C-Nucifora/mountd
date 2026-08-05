@@ -167,8 +167,22 @@ pub async fn serve(engine: Arc<Engine>, path: PathBuf) -> Result<()> {
     }
 }
 
+/// A daemon that accepts a connection and then never answers must not hang the
+/// caller forever — the menu bar app spawns one `mountctl` per refresh, and
+/// each stuck one costs it a thread and a live child process.
+///
+/// The ceiling accommodates the slowest legitimate request: a `mount` that has
+/// to wait on a Keychain ACL prompt.
+const CLIENT_TIMEOUT: Duration = Duration::from_secs(120);
+
 /// Client side: send one request, read one response.
 pub async fn client_request(path: &PathBuf, req: &Request) -> Result<Response> {
+    tokio::time::timeout(CLIENT_TIMEOUT, client_request_inner(path, req))
+        .await
+        .with_context(|| format!("mountd did not respond within {CLIENT_TIMEOUT:?}"))?
+}
+
+async fn client_request_inner(path: &PathBuf, req: &Request) -> Result<Response> {
     let stream = UnixStream::connect(path)
         .await
         .with_context(|| format!("connecting to {} (is mountd running?)", path.display()))?;
@@ -177,9 +191,14 @@ pub async fn client_request(path: &PathBuf, req: &Request) -> Result<Response> {
     out.push('\n');
     w.write_all(out.as_bytes()).await?;
     let mut line = String::new();
-    BufReader::new(r).read_line(&mut line).await?;
+    BufReader::new(r.take(MAX_RESPONSE_BYTES))
+        .read_line(&mut line)
+        .await?;
     serde_json::from_str(line.trim()).context("parsing daemon response")
 }
+
+/// `explain --json` over many mounts is the largest legitimate response.
+const MAX_RESPONSE_BYTES: u64 = 4 * 1024 * 1024;
 
 #[cfg(test)]
 mod tests {
