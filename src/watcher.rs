@@ -47,10 +47,22 @@ pub async fn run(engine: Arc<Engine>) {
             Ok(mut child) => {
                 if let Some(stdout) = child.stdout.take() {
                     let mut lines = BufReader::new(stdout).lines();
-                    while let Ok(Some(line)) = lines.next_line().await {
-                        if is_hint_line(&line) {
-                            debug!(event = %line.trim(), "network event");
-                            engine.hint.notify_one();
+                    loop {
+                        match lines.next_line().await {
+                            Ok(Some(line)) => {
+                                if is_hint_line(&line) {
+                                    debug!(event = %line.trim(), "network event");
+                                    engine.hint.notify_one();
+                                }
+                            }
+                            Ok(None) => break, // the child closed stdout
+                            // A single undecodable line is not a reason to
+                            // tear down the monitor and lose every subsequent
+                            // event until the restart delay elapses.
+                            Err(e) => {
+                                warn!("route monitor read error: {e}");
+                                break;
+                            }
                         }
                     }
                 }

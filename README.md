@@ -110,11 +110,20 @@ mountpoint = "~/mnt/nas-media"
 
 Semantics:
 
-- `when` decides whether the mount should exist (the reconciler unmounts
-  when it stops holding, unless `policy.unmount_when_gone = false`).
+- `when` decides whether the mount should exist (the reconciler unmounts once
+  it has stopped holding for `unmount_grace_secs`, unless
+  `policy.unmount_when_gone = false`).
 - `deps` / `requires` decide when an attempt may *start*.
 - Endpoint order plus the probe gate decide *how*. The gate defaults to the
   protocol's service port (`tcp:445` for SMB, `tcp:2049` for NFS).
+- `mountctl reload` re-validates before swapping: a bad file is reported and
+  the running config is kept. Removing a mount from the config drops the
+  daemon's state for it but leaves any existing volume mounted — the config
+  no longer claims it, so unmount it yourself if you want it gone.
+- `mountctl unmount` sticks. The daemon will not remount until `when`
+  transitions from false back to true, or you run `mountctl mount` or
+  `reload`. Nothing is more annoying than a daemon that undoes your unmount
+  four seconds later.
 
 ### SMB credentials
 
