@@ -44,7 +44,12 @@ pub async fn run(engine: Arc<Engine>) {
             .kill_on_drop(true)
             .spawn()
         {
-            Ok(mut child) => {
+            Ok(child) => {
+                let mut monitor = Monitor {
+                    child: Some(child),
+                    activity: Some(crate::mountcmd::CommandActivity::begin()),
+                };
+                let child = monitor.child.as_mut().unwrap();
                 if let Some(stdout) = child.stdout.take() {
                     let mut lines = BufReader::new(stdout).lines();
                     loop {
@@ -66,7 +71,8 @@ pub async fn run(engine: Arc<Engine>) {
                         }
                     }
                 }
-                let _ = child.wait().await;
+                // EOF or a read failure does not mean the process has exited.
+                stop_monitor(child).await;
                 warn!("route monitor exited; restarting in 5s");
             }
             Err(e) => {
@@ -77,9 +83,56 @@ pub async fn run(engine: Arc<Engine>) {
     }
 }
 
+struct Monitor {
+    child: Option<tokio::process::Child>,
+    activity: Option<crate::mountcmd::CommandActivity>,
+}
+
+impl Drop for Monitor {
+    fn drop(&mut self) {
+        let mut child = self.child.take().unwrap();
+        let activity = self.activity.take();
+        let _ = child.start_kill();
+        tokio::spawn(async move {
+            stop_monitor(&mut child).await;
+            drop(activity);
+        });
+    }
+}
+
+async fn stop_monitor(child: &mut tokio::process::Child) {
+    let _ = child.start_kill();
+    while child.wait().await.is_err() {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn closed_stdout_does_not_prevent_restart() {
+        let mut child = tokio::process::Command::new("/bin/sh")
+            .args(["-c", "exec 1>&-; exec /bin/sleep 30"])
+            .stdout(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let stdout = child.stdout.take().unwrap();
+        assert!(tokio::time::timeout(
+            Duration::from_secs(2),
+            BufReader::new(stdout).lines().next_line()
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .is_none());
+        tokio::time::timeout(Duration::from_secs(2), stop_monitor(&mut child))
+            .await
+            .unwrap();
+        assert!(child.try_wait().unwrap().is_some());
+    }
 
     #[test]
     fn interface_and_address_events_are_hints() {

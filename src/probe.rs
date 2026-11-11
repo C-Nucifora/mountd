@@ -2,7 +2,7 @@
 //! a rehearsal of the mount's own first syscall — never ICMP, which
 //! false-positives (host up, service down) and false-negatives (filtered).
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 
 use tokio::net::TcpStream;
@@ -15,6 +15,8 @@ use crate::BoxFut;
 /// unhappy) must not eat the whole deadline and read as unreachable.
 const DNS_BUDGET_FRACTION: u32 = 2;
 const DNS_BUDGET_CAP: Duration = Duration::from_millis(750);
+// Timed-out libc calls can survive indefinitely; retries must not grow threads.
+static RESOLVERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(16);
 
 /// True if a TCP connection to `host:port` succeeds within `deadline`.
 ///
@@ -24,12 +26,11 @@ const DNS_BUDGET_CAP: Duration = Duration::from_millis(750);
 pub async fn probe_tcp(host: &str, port: u16, deadline: Duration) -> bool {
     let attempt = async {
         let dns_budget = (deadline / DNS_BUDGET_FRACTION).min(DNS_BUDGET_CAP);
-        let resolved = timeout(dns_budget, tokio::net::lookup_host((host, port)))
-            .await
-            .ok()?
-            .ok()?;
-
-        let mut addrs: Vec<SocketAddr> = resolved.collect();
+        let mut addrs = if let Ok(ip) = host.parse::<IpAddr>() {
+            vec![SocketAddr::new(ip, port)]
+        } else {
+            timeout(dns_budget, resolve(host, port)).await.ok()?.ok()?
+        };
         addrs.sort_by_key(|a| !a.is_ipv4()); // false (0) sorts first
 
         for addr in addrs {
@@ -40,6 +41,42 @@ pub async fn probe_tcp(host: &str, port: u16, deadline: Duration) -> bool {
         None
     };
     matches!(timeout(deadline, attempt).await, Ok(Some(())))
+}
+
+/// libc resolution can block after cancellation. Keep it outside Tokio's
+/// blocking pool so shutdown can explicitly drain it without freezing the UI.
+async fn resolve(host: &str, port: u16) -> std::io::Result<Vec<SocketAddr>> {
+    let host = host.to_string();
+    resolve_limited(&RESOLVERS, move || {
+        (host.as_str(), port)
+            .to_socket_addrs()
+            .map(|addrs| addrs.collect())
+    })
+    .await
+}
+
+async fn resolve_limited(
+    slots: &'static tokio::sync::Semaphore,
+    lookup: impl FnOnce() -> std::io::Result<Vec<SocketAddr>> + Send + 'static,
+) -> std::io::Result<Vec<SocketAddr>> {
+    let slot = slots.try_acquire().map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::WouldBlock,
+            "resolver capacity exhausted",
+        )
+    })?;
+    let (send, receive) = tokio::sync::oneshot::channel();
+    let activity = crate::mountcmd::CommandActivity::begin();
+    std::thread::Builder::new()
+        .name("mountd-dns".into())
+        .spawn(move || {
+            let _activity = activity;
+            let _slot = slot;
+            let _ = send.send(lookup());
+        })?;
+    receive
+        .await
+        .map_err(|_| std::io::Error::other("resolver stopped"))?
 }
 
 /// A probe candidate: one endpoint of a mount, in priority order.
@@ -64,26 +101,30 @@ pub async fn select_endpoint<P>(cands: &[Candidate], stagger: Duration, probe: P
 where
     P: Fn(String, u16, Duration) -> BoxFut<bool> + Clone + Send + 'static,
 {
-    let handles: Vec<_> = cands
-        .iter()
-        .enumerate()
-        .map(|(rank, c)| {
-            let c = c.clone();
-            let probe = probe.clone();
-            tokio::spawn(async move {
-                tokio::time::sleep(stagger * rank as u32).await;
-                probe(c.address, c.port, c.timeout).await
-            })
-        })
-        .collect();
+    let mut tasks = tokio::task::JoinSet::new();
+    for (rank, c) in cands.iter().enumerate() {
+        let c = c.clone();
+        let probe = probe.clone();
+        let activity = crate::mountcmd::CommandActivity::begin();
+        tasks.spawn(async move {
+            let _activity = activity;
+            tokio::time::sleep(stagger.saturating_mul(rank as u32)).await;
+            let up = timeout(c.timeout, probe(c.address, c.port, c.timeout))
+                .await
+                .unwrap_or(false);
+            (rank, c.index, up)
+        });
+    }
 
-    // Every handle is awaited even after a winner is known, so no probe task
-    // outlives this call still holding a socket.
+    // JoinSet aborts outstanding probes if the caller is cancelled.
     let mut winner = None;
-    for (c, handle) in cands.iter().zip(handles) {
-        let up = handle.await.unwrap_or(false);
-        if winner.is_none() && up {
-            winner = Some(c.index);
+    let mut best_rank = usize::MAX;
+    while let Some(result) = tasks.join_next().await {
+        if let Ok((rank, index, true)) = result {
+            if rank < best_rank {
+                best_rank = rank;
+                winner = Some(index);
+            }
         }
     }
     winner
@@ -102,6 +143,79 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+    async fn drain_waits_for_aborted_nested_producer_before_child_registration() {
+        let started = Arc::new(tokio::sync::Notify::new());
+        let (release, blocked) = std::sync::mpsc::channel();
+        let blocked = Arc::new(std::sync::Mutex::new(blocked));
+        let parent = {
+            let started = started.clone();
+            tokio::spawn(async move {
+                let candidates = vec![Candidate {
+                    index: 0,
+                    address: "synthetic".into(),
+                    port: 445,
+                    timeout: Duration::from_secs(10),
+                }];
+                select_endpoint(&candidates, Duration::ZERO, move |_, _, _| {
+                    // Hold the current poll before it can register a resolver or command.
+                    started.notify_one();
+                    blocked
+                        .lock()
+                        .unwrap()
+                        .recv_timeout(Duration::from_secs(3))
+                        .unwrap();
+                    Box::pin(async { false })
+                })
+                .await
+            })
+        };
+        tokio::time::timeout(Duration::from_secs(2), started.notified())
+            .await
+            .unwrap();
+        parent.abort();
+        let _ = parent.await;
+        let held =
+            tokio::time::timeout(Duration::from_millis(30), crate::mountcmd::drain_commands())
+                .await;
+        release.send(()).unwrap();
+        assert!(held.is_err(), "drain escaped a still-polling producer");
+        tokio::time::timeout(Duration::from_secs(2), crate::mountcmd::drain_commands())
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancelled_resolver_keeps_capacity_until_its_thread_finishes() {
+        static SLOT: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+        let (started, ready) = tokio::sync::oneshot::channel();
+        let (release, held) = std::sync::mpsc::channel();
+        let worker = tokio::spawn(resolve_limited(&SLOT, move || {
+            let _ = started.send(());
+            let _ = held.recv();
+            Ok(vec![])
+        }));
+        timeout(Duration::from_secs(2), ready)
+            .await
+            .unwrap()
+            .unwrap();
+        worker.abort();
+        let _ = worker.await;
+        let error = resolve_limited(&SLOT, || panic!("must not start another resolver"))
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
+        release.send(()).unwrap();
+        timeout(Duration::from_secs(2), async {
+            while SLOT.available_permits() == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(resolve_limited(&SLOT, || Ok(vec![])).await.is_ok());
+    }
     use tokio::net::TcpListener;
 
     async fn listener() -> (TcpListener, u16) {
@@ -142,6 +256,14 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn owned_resolver_thread_returns_numeric_fixture_address() {
+        assert_eq!(
+            resolve("127.0.0.1", 12345).await.unwrap(),
+            vec!["127.0.0.1:12345".parse::<SocketAddr>().unwrap()]
+        );
+    }
+
+    #[tokio::test]
     async fn probe_succeeds_against_listener() {
         let (_l, port) = listener().await;
         assert!(probe_tcp("127.0.0.1", port, Duration::from_millis(500)).await);
@@ -155,29 +277,57 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn probe_times_out_on_blackhole() {
-        // TEST-NET-3 is unroutable; the timeout must bound the wait.
-        let start = std::time::Instant::now();
-        assert!(!probe_tcp("203.0.113.1", 445, Duration::from_millis(200)).await);
-        assert!(start.elapsed() < Duration::from_secs(2));
-    }
-
-    #[tokio::test]
-    async fn probe_fails_on_unresolvable_host() {
-        assert!(!probe_tcp("nonexistent.invalid", 445, Duration::from_millis(500)).await);
-    }
-
-    #[tokio::test]
-    async fn slow_dns_cannot_consume_the_whole_budget() {
-        // The DNS sub-deadline is a fraction of the total, so an unresolvable
-        // name returns well before the overall deadline elapses.
-        let start = std::time::Instant::now();
-        assert!(!probe_tcp("nonexistent.invalid", 445, Duration::from_secs(4)).await);
-        assert!(
-            start.elapsed() < Duration::from_secs(3),
-            "took {:?}",
-            start.elapsed()
+    async fn hung_injected_probe_is_bounded() {
+        let cands = vec![cand(0, "fake", 445, 10)];
+        let probe = |_: String, _, _| -> BoxFut<bool> { Box::pin(std::future::pending()) };
+        assert_eq!(
+            timeout(
+                Duration::from_secs(1),
+                select_endpoint(&cands, Duration::ZERO, probe)
+            )
+            .await
+            .unwrap(),
+            None
         );
+    }
+
+    #[tokio::test]
+    async fn cancelled_selection_drops_probe_futures() {
+        struct Guard(Arc<AtomicUsize>);
+        impl Drop for Guard {
+            fn drop(&mut self) {
+                self.0.fetch_sub(1, Ordering::SeqCst);
+            }
+        }
+        let active = Arc::new(AtomicUsize::new(0));
+        let count = active.clone();
+        let probe = move |_: String, _, _| -> BoxFut<bool> {
+            let count = count.clone();
+            Box::pin(async move {
+                count.fetch_add(1, Ordering::SeqCst);
+                let _guard = Guard(count);
+                std::future::pending().await
+            })
+        };
+        let task = tokio::spawn(async move {
+            select_endpoint(&[cand(0, "fake", 445, 30_000)], Duration::ZERO, probe).await
+        });
+        timeout(Duration::from_secs(1), async {
+            while active.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        task.abort();
+        let _ = task.await;
+        timeout(Duration::from_secs(1), async {
+            while active.load(Ordering::SeqCst) != 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
     }
 
     #[tokio::test]

@@ -54,13 +54,17 @@ pub fn magic_packet(mac: &str) -> Result<Vec<u8>> {
 /// Send a magic packet for `spec`. Binds an ephemeral UDP socket with
 /// broadcast enabled; the send is best-effort by nature.
 pub async fn send(spec: &WolSpec) -> Result<()> {
+    send_from(spec, Ipv4Addr::UNSPECIFIED).await
+}
+
+async fn send_from(spec: &WolSpec, bind_address: Ipv4Addr) -> Result<()> {
     let packet = magic_packet(&spec.mac)?;
     let broadcast: Ipv4Addr = spec
         .broadcast
         .parse()
         .with_context(|| format!("invalid WoL broadcast address `{}`", spec.broadcast))?;
 
-    let socket = tokio::net::UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0))
+    let socket = tokio::net::UdpSocket::bind(SocketAddrV4::new(bind_address, 0))
         .await
         .context("binding WoL socket")?;
     socket
@@ -122,11 +126,22 @@ mod tests {
         // 127.0.0.1 is not a broadcast address, but the send path (bind,
         // set_broadcast, send_to) is exercised end to end without leaving
         // the machine.
+        let receiver = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let spec = WolSpec {
             mac: "aa:bb:cc:dd:ee:ff".into(),
             broadcast: "127.0.0.1".into(),
-            port: 9,
+            port: receiver.local_addr().unwrap().port(),
         };
-        assert!(send(&spec).await.is_ok());
+        send_from(&spec, Ipv4Addr::LOCALHOST).await.unwrap();
+        let mut packet = [0; 103];
+        let (size, source) = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            receiver.recv_from(&mut packet),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(source.ip(), Ipv4Addr::LOCALHOST);
+        assert_eq!(&packet[..size], magic_packet(&spec.mac).unwrap());
     }
 }

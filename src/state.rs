@@ -139,7 +139,7 @@ pub struct MountRuntime {
     /// a false -> true transition of `when`.
     pub user_suppressed: bool,
     /// An attempt is in flight for this mount; nothing else may start one.
-    pub attempting: bool,
+    pub operation: std::sync::Arc<tokio::sync::Mutex<()>>,
 
     // wake-on-lan
     pub last_wol_at: Option<Instant>,

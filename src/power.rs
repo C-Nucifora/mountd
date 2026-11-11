@@ -18,7 +18,7 @@ use std::ffi::c_void;
 use std::time::Duration;
 
 use tokio::sync::{mpsc, oneshot};
-use tracing::{debug, warn};
+use tracing::warn;
 
 #[derive(Debug)]
 pub enum PowerEvent {
@@ -60,6 +60,8 @@ const K_IO_MESSAGE_SYSTEM_WILL_SLEEP: u32 = 0xE000_0280;
 const K_IO_MESSAGE_SYSTEM_WILL_NOT_SLEEP: u32 = 0xE000_0290;
 /// The system is fully awake again.
 const K_IO_MESSAGE_SYSTEM_HAS_POWERED_ON: u32 = 0xE000_0300;
+// Leave room before IOKit's roughly 30-second forced acknowledgement deadline.
+const MAX_ACK_WAIT: Duration = Duration::from_secs(25);
 
 #[link(name = "IOKit", kind = "framework")]
 extern "C" {
@@ -88,8 +90,6 @@ extern "C" {
 struct CallbackContext {
     root_port: io_connect_t,
     tx: mpsc::UnboundedSender<PowerEvent>,
-    /// How long the daemon may take to unmount before we acknowledge anyway.
-    budget: Duration,
 }
 
 extern "C" fn power_callback(
@@ -109,24 +109,28 @@ extern "C" fn power_callback(
             unsafe { IOAllowPowerChange(ctx.root_port, notification_id) };
         }
         K_IO_MESSAGE_SYSTEM_WILL_SLEEP => {
-            let (ack_tx, ack_rx) = oneshot::channel();
-            if ctx.tx.send(PowerEvent::WillSleep { ack: ack_tx }).is_err() {
+            acknowledge_sleep(&ctx.tx, MAX_ACK_WAIT, || {
                 unsafe { IOAllowPowerChange(ctx.root_port, notification_id) };
-                return;
-            }
-            // Block this callback until the engine is done or the budget
-            // elapses — the kernel is holding sleep open for us either way.
-            let _ = ack_rx.blocking_recv_timeout(ctx.budget);
-            unsafe { IOAllowPowerChange(ctx.root_port, notification_id) };
+            });
         }
-        K_IO_MESSAGE_SYSTEM_WILL_NOT_SLEEP => {
-            debug!("pending sleep cancelled");
-        }
-        K_IO_MESSAGE_SYSTEM_HAS_POWERED_ON => {
+        K_IO_MESSAGE_SYSTEM_WILL_NOT_SLEEP | K_IO_MESSAGE_SYSTEM_HAS_POWERED_ON => {
             let _ = ctx.tx.send(PowerEvent::DidWake);
         }
         _ => {}
     }
+}
+
+// Keep the acknowledgement in one place, including a closed engine channel.
+fn acknowledge_sleep(
+    tx: &mpsc::UnboundedSender<PowerEvent>,
+    budget: Duration,
+    allow: impl FnOnce(),
+) {
+    let (ack_tx, ack_rx) = oneshot::channel();
+    if tx.send(PowerEvent::WillSleep { ack: ack_tx }).is_ok() {
+        let _ = ack_rx.blocking_recv_timeout(budget.min(MAX_ACK_WAIT));
+    }
+    allow();
 }
 
 /// `oneshot::Receiver` has no blocking timeout, and the power callback runs on
@@ -159,7 +163,7 @@ impl BlockingRecvTimeout for oneshot::Receiver<()> {
 /// channel simply stays silent: the engine still detects wake by the
 /// monotonic-clock gap, so power notifications are an upgrade, not a
 /// dependency.
-pub fn watch(budget: Duration) -> mpsc::UnboundedReceiver<PowerEvent> {
+pub fn watch() -> mpsc::UnboundedReceiver<PowerEvent> {
     let (tx, rx) = mpsc::unbounded_channel();
 
     std::thread::Builder::new()
@@ -168,11 +172,7 @@ pub fn watch(budget: Duration) -> mpsc::UnboundedReceiver<PowerEvent> {
             let mut notify_port: IONotificationPortRef = std::ptr::null_mut();
             let mut notifier: io_object_t = 0;
 
-            let ctx = Box::new(CallbackContext {
-                root_port: 0,
-                tx,
-                budget,
-            });
+            let ctx = Box::new(CallbackContext { root_port: 0, tx });
             let ctx_ptr = Box::into_raw(ctx);
 
             // SAFETY: all pointers are valid for the duration of the call, and
@@ -264,10 +264,32 @@ mod tests {
     }
 
     #[test]
-    fn watch_is_safe_to_call_and_never_panics() {
-        // Registration may succeed or fail depending on the test environment;
-        // either way this must return a live receiver rather than blow up.
-        let rx = watch(Duration::from_millis(50));
-        drop(rx);
+    fn sleep_is_acknowledged_once_when_engine_is_gone_or_times_out() {
+        for closed in [true, false] {
+            let (tx, rx) = mpsc::unbounded_channel();
+            let _receiver = if closed {
+                drop(rx);
+                None
+            } else {
+                Some(rx)
+            };
+            let mut calls = 0;
+            acknowledge_sleep(&tx, Duration::from_millis(25), || calls += 1);
+            assert_eq!(calls, 1);
+        }
+    }
+
+    #[test]
+    fn sleep_is_acknowledged_when_engine_drops_ack_after_error() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let engine = std::thread::spawn(move || {
+            if let Some(PowerEvent::WillSleep { ack }) = rx.blocking_recv() {
+                drop(ack);
+            }
+        });
+        let mut calls = 0;
+        acknowledge_sleep(&tx, Duration::from_secs(1), || calls += 1);
+        engine.join().unwrap();
+        assert_eq!(calls, 1);
     }
 }

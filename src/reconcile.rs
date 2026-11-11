@@ -123,6 +123,9 @@ pub fn decide(spec: &MountSpec, ctx: &EvalCtx, view: &MountView) -> Decision {
     let should = ctx.when_holds(&spec.when);
     match (should, view.mounted) {
         (true, true) => {
+            if view.settling {
+                return Decision::Keep;
+            }
             if view.health_failures >= spec.policy.health_failures {
                 Decision::Recover
             } else if let Some(target) = view.migrate_to {

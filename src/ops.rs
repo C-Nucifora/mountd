@@ -15,6 +15,7 @@ use anyhow::Result;
 
 use crate::config::MountSpec;
 use crate::cred::FetchOutcome;
+use crate::mountcmd::OperationLease;
 use crate::mtab::MountEntry;
 use crate::wol::WolSpec;
 use crate::BoxFut;
@@ -22,24 +23,34 @@ use crate::BoxFut;
 /// Async methods take owned arguments and return a boxed future so the trait
 /// stays object-safe without an `async-trait` dependency.
 pub trait Ops: Send + Sync + 'static {
-    fn list_mounts(&self) -> Vec<MountEntry>;
+    fn network_snapshot(&self) -> BoxFut<crate::fingerprint::NetSnapshot>;
+    fn check_deps(
+        &self,
+        cfg: crate::config::Config,
+    ) -> BoxFut<std::collections::BTreeMap<String, bool>>;
+    fn list_mounts(&self) -> std::io::Result<Vec<MountEntry>>;
+
+    fn prepare_mount(&self, spec: MountSpec, lease: OperationLease) -> BoxFut<Result<()>>;
 
     fn mount(
         &self,
         spec: MountSpec,
         address: String,
         password: Option<String>,
+        lease: OperationLease,
     ) -> BoxFut<Result<()>>;
 
     /// `force` permits the rungs that can yank a volume from under an open
     /// file. Policy-driven unmounts pass false.
-    fn unmount(&self, mountpoint: String, force: bool) -> BoxFut<Result<()>>;
+    fn unmount(&self, mountpoint: String, force: bool, lease: OperationLease)
+        -> BoxFut<Result<()>>;
 
     fn fetch_password(
         &self,
         server: String,
         account: String,
         deadline: Duration,
+        lease: OperationLease,
     ) -> BoxFut<FetchOutcome>;
 
     fn probe(&self, address: String, port: u16, timeout: Duration) -> BoxFut<bool>;
@@ -51,8 +62,21 @@ pub trait Ops: Send + Sync + 'static {
 pub struct SystemOps;
 
 impl Ops for SystemOps {
-    fn list_mounts(&self) -> Vec<MountEntry> {
+    fn network_snapshot(&self) -> BoxFut<crate::fingerprint::NetSnapshot> {
+        Box::pin(crate::fingerprint::gather())
+    }
+    fn check_deps(
+        &self,
+        cfg: crate::config::Config,
+    ) -> BoxFut<std::collections::BTreeMap<String, bool>> {
+        Box::pin(async move { crate::deps::check_all(&cfg).await })
+    }
+    fn list_mounts(&self) -> std::io::Result<Vec<MountEntry>> {
         crate::mtab::list()
+    }
+
+    fn prepare_mount(&self, spec: MountSpec, lease: OperationLease) -> BoxFut<Result<()>> {
+        Box::pin(async move { crate::mountcmd::prepare_mount(&spec, lease).await })
     }
 
     fn mount(
@@ -60,12 +84,20 @@ impl Ops for SystemOps {
         spec: MountSpec,
         address: String,
         password: Option<String>,
+        lease: OperationLease,
     ) -> BoxFut<Result<()>> {
-        Box::pin(async move { crate::mountcmd::mount(&spec, &address, password.as_deref()).await })
+        Box::pin(async move {
+            crate::mountcmd::mount_prepared(&spec, &address, password.as_deref(), lease).await
+        })
     }
 
-    fn unmount(&self, mountpoint: String, force: bool) -> BoxFut<Result<()>> {
-        Box::pin(async move { crate::mountcmd::unmount(&mountpoint, force).await })
+    fn unmount(
+        &self,
+        mountpoint: String,
+        force: bool,
+        lease: OperationLease,
+    ) -> BoxFut<Result<()>> {
+        Box::pin(async move { crate::mountcmd::unmount_owned(&mountpoint, force, lease).await })
     }
 
     fn fetch_password(
@@ -73,10 +105,11 @@ impl Ops for SystemOps {
         server: String,
         account: String,
         deadline: Duration,
+        lease: OperationLease,
     ) -> BoxFut<FetchOutcome> {
-        Box::pin(
-            async move { crate::cred::fetch_smb_password(&server, &account, None, deadline).await },
-        )
+        Box::pin(async move {
+            crate::cred::fetch_smb_password(&server, &account, None, deadline, lease).await
+        })
     }
 
     fn probe(&self, address: String, port: u16, timeout: Duration) -> BoxFut<bool> {
@@ -120,6 +153,45 @@ pub mod fake {
         /// Keychain answers by server; absent means `Missing`.
         pub passwords: BTreeMap<String, FetchOutcome>,
         pub calls: Vec<Call>,
+        pub list_mounts_fails: bool,
+        pub disconnect_on_password: bool,
+        pub disconnect_on_unmount: Option<String>,
+        pub credential_child: Option<Arc<FakeChild>>,
+        pub prepare_child: Option<Arc<FakeChild>>,
+        pub snapshot_after_deps: Option<crate::fingerprint::NetSnapshot>,
+        pub mount_child: Option<Arc<FakeChild>>,
+        pub unmount_child: Option<Arc<FakeChild>>,
+        pub snapshot: crate::fingerprint::NetSnapshot,
+        pub deps_down: BTreeSet<String>,
+        pub drop_deps_on_password: bool,
+    }
+
+    /// A synthetic child whose reap can outlive cancellation of its caller.
+    #[derive(Default)]
+    pub struct FakeChild {
+        pub started: tokio::sync::Notify,
+        pub cancelled: tokio::sync::Notify,
+        pub release: tokio::sync::Notify,
+        pub reaped: tokio::sync::Notify,
+    }
+
+    async fn wait_for_child(child: Option<Arc<FakeChild>>, lease: OperationLease) {
+        let Some(child) = child else { return };
+        let (mut tx, rx) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            child.started.notify_one();
+            tokio::select! {
+                _ = child.release.notified() => {},
+                _ = tx.closed() => {
+                    child.cancelled.notify_one();
+                    child.release.notified().await;
+                }
+            }
+            drop(lease);
+            child.reaped.notify_one();
+            let _ = tx.send(());
+        });
+        let _ = rx.await;
     }
 
     #[derive(Clone, Default)]
@@ -185,10 +257,30 @@ pub mod fake {
     }
 
     impl Ops for FakeOps {
-        fn list_mounts(&self) -> Vec<MountEntry> {
-            self.0
-                .lock()
-                .unwrap()
+        fn network_snapshot(&self) -> BoxFut<crate::fingerprint::NetSnapshot> {
+            let snapshot = self.state().snapshot.clone();
+            Box::pin(async move { snapshot })
+        }
+        fn check_deps(&self, cfg: crate::config::Config) -> BoxFut<BTreeMap<String, bool>> {
+            let shared = self.0.clone();
+            Box::pin(async move {
+                let mut st = shared.lock().unwrap();
+                if let Some(snapshot) = st.snapshot_after_deps.take() {
+                    st.snapshot = snapshot;
+                }
+                let down = st.deps_down.clone();
+                cfg.deps
+                    .keys()
+                    .map(|name| (name.clone(), !down.contains(name)))
+                    .collect()
+            })
+        }
+        fn list_mounts(&self) -> std::io::Result<Vec<MountEntry>> {
+            let st = self.0.lock().unwrap();
+            if st.list_mounts_fails {
+                return Err(std::io::Error::other("synthetic enumeration failure"));
+            }
+            Ok(st
                 .mounted
                 .iter()
                 .map(|(on, from)| MountEntry {
@@ -196,7 +288,15 @@ pub mod fake {
                     from: from.clone(),
                     on: on.clone(),
                 })
-                .collect()
+                .collect())
+        }
+
+        fn prepare_mount(&self, _spec: MountSpec, lease: OperationLease) -> BoxFut<Result<()>> {
+            let child = self.state().prepare_child.clone();
+            Box::pin(async move {
+                wait_for_child(child, lease).await;
+                Ok(())
+            })
         }
 
         fn mount(
@@ -204,12 +304,16 @@ pub mod fake {
             spec: MountSpec,
             address: String,
             _password: Option<String>,
+            lease: OperationLease,
         ) -> BoxFut<Result<()>> {
             let shared = self.0.clone();
             let mountpoint = crate::mountcmd::normalize_mountpoint(&spec.mountpoint)
                 .to_string_lossy()
                 .to_string();
             Box::pin(async move {
+                let child = shared.lock().unwrap().mount_child.clone();
+                wait_for_child(child, lease.clone()).await;
+                let _lease = lease;
                 let mut st = shared.lock().unwrap();
                 st.calls.push(Call::Mount {
                     name: spec.name.clone(),
@@ -224,9 +328,17 @@ pub mod fake {
             })
         }
 
-        fn unmount(&self, mountpoint: String, force: bool) -> BoxFut<Result<()>> {
+        fn unmount(
+            &self,
+            mountpoint: String,
+            force: bool,
+            lease: OperationLease,
+        ) -> BoxFut<Result<()>> {
             let shared = self.0.clone();
             Box::pin(async move {
+                let child = shared.lock().unwrap().unmount_child.clone();
+                wait_for_child(child, lease.clone()).await;
+                let _lease = lease;
                 let mut st = shared.lock().unwrap();
                 st.calls.push(Call::Unmount {
                     mountpoint: mountpoint.clone(),
@@ -236,6 +348,9 @@ pub mod fake {
                     return Err(anyhow::anyhow!("resource busy"));
                 }
                 st.mounted.remove(&mountpoint);
+                if let Some(address) = st.disconnect_on_unmount.clone() {
+                    st.reachable.remove(&address);
+                }
                 Ok(())
             })
         }
@@ -245,14 +360,23 @@ pub mod fake {
             server: String,
             account: String,
             _deadline: Duration,
+            lease: OperationLease,
         ) -> BoxFut<FetchOutcome> {
             let shared = self.0.clone();
             Box::pin(async move {
+                let child = shared.lock().unwrap().credential_child.clone();
+                wait_for_child(child, lease).await;
                 let mut st = shared.lock().unwrap();
                 st.calls.push(Call::FetchPassword {
                     server: server.clone(),
                     account,
                 });
+                if st.drop_deps_on_password {
+                    st.deps_down.insert("vpn".into());
+                }
+                if st.disconnect_on_password {
+                    st.reachable.clear();
+                }
                 st.passwords
                     .get(&server)
                     .cloned()
@@ -305,7 +429,7 @@ mod tests {
             st.mounted
                 .insert("/mnt/a".into(), "//user@10.0.0.1/share".into());
         });
-        let entries = ops.list_mounts();
+        let entries = ops.list_mounts().unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].on, "/mnt/a");
         assert!(crate::mtab::find_by_mountpoint(&entries, "/mnt/a").is_some());
@@ -324,7 +448,9 @@ mod tests {
             !ops.probe("10.0.0.2".into(), 445, Duration::from_millis(1))
                 .await
         );
-        ops.unmount("/mnt/a".into(), true).await.unwrap();
+        ops.unmount("/mnt/a".into(), true, std::sync::Arc::new(()))
+            .await
+            .unwrap();
 
         assert_eq!(
             ops.calls(),
@@ -349,8 +475,14 @@ mod tests {
             st.mounted.insert("/mnt/a".into(), "//u@h/s".into());
             st.unmount_needs_force.insert("/mnt/a".into());
         });
-        assert!(ops.unmount("/mnt/a".into(), false).await.is_err());
-        assert!(ops.unmount("/mnt/a".into(), true).await.is_ok());
-        assert!(ops.list_mounts().is_empty());
+        assert!(ops
+            .unmount("/mnt/a".into(), false, std::sync::Arc::new(()))
+            .await
+            .is_err());
+        assert!(ops
+            .unmount("/mnt/a".into(), true, std::sync::Arc::new(()))
+            .await
+            .is_ok());
+        assert!(ops.list_mounts().unwrap().is_empty());
     }
 }
