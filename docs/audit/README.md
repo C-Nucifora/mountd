@@ -1,9 +1,15 @@
 # Hardening handoff
 
+The user reopened the audit for at least three new break/fix rounds and authorized
+topic-branch pushes. Current work and publication records are in
+[extended audit rounds](swarm-rounds.md). The evidence below describes the first
+audit batch; it does not count as new-round coverage.
+
 Linux verification and the source audit are complete. Native acceptance is
 blocked on a disposable Mac and separate authorization for Keychain, launchd
 registration and real-share cases. No installed app, real shares, production
-credentials or LaunchAgents were changed. Nothing was pushed or published.
+credentials or LaunchAgents were changed. Nothing had been pushed at the original
+handoff.
 
 ## Local implementation commits
 

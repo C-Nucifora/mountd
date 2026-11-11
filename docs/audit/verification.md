@@ -1,5 +1,8 @@
 # Integrated verification
 
+This is the first audit batch's verification record. Follow
+[extended audit rounds](swarm-rounds.md) for subsequent checks and publication.
+
 Verified on Linux x86_64, 2026-11-12 Australia/Brisbane, against the hardening
 sources based on `b39ea7ed42b418faa870f74f8edf282f60797fde`.
 [Source hashes](results/source-sha256.txt) identify the checked source and
