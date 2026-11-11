@@ -1,0 +1,74 @@
+   Compiling mountd-ipc-fixture v0.4.0 (/home/christian/.local/share/agent-tmp/mountd-ipc-jvknqfpu)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.77s
+     Running unittests src/lib.rs (target/portable-daemon/debug/deps/mountd-32fc725d3cf2b4e9)
+
+running 27 tests
+test config::tests::a_bad_gateway_mac_names_the_network_not_a_mount ... ok
+test config::tests::a_bare_mountpoint_name_resolves_against_mount_root ... ok
+test config::tests::a_shared_prefix_is_not_nesting ... ok
+test config::tests::cidr_contains ... ok
+test config::tests::cond_ref_parsing ... ok
+test config::tests::config_rejects_mount_options_that_escape_the_probe_and_timeout_contract ... ok
+test config::tests::new_policy_defaults_are_conservative ... ok
+test config::tests::normalize_mac_pads_and_lowercases ... ok
+test config::tests::normalizes_gateway_mac ... ok
+test config::tests::parses_full_example ... ok
+test config::tests::rejects_a_relative_mountpoint ... ok
+test config::tests::rejects_a_start_longer_than_the_cap ... ok
+test config::tests::rejects_an_endpoint_address_that_looks_like_a_flag ... ok
+test config::tests::rejects_duplicate_mount_names ... ok
+test config::tests::rejects_home_mountpoints_and_ignored_dependency_comparisons ... ok
+test config::tests::rejects_invalid_timers_and_unsafe_mount_values ... ok
+test config::tests::rejects_mount_without_endpoints ... ok
+test config::tests::rejects_mountpoint_case_and_unicode_aliases ... ok
+test config::tests::rejects_nested_mountpoints ... ok
+test config::tests::rejects_network_in_requires ... ok
+test config::tests::rejects_probe_port_zero ... ok
+test config::tests::rejects_smb_without_share ... ok
+test config::tests::rejects_two_mounts_sharing_a_mountpoint ... ok
+test config::tests::rejects_unbounded_retry_values ... ok
+test config::tests::rejects_unknown_network_ref ... ok
+test config::tests::sleep_budget_stays_below_the_system_acknowledgement_window ... ok
+test config::tests::validates_wake_on_lan_settings ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 78 filtered out; finished in 0.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/portable-daemon/debug/deps/mountd-32fc725d3cf2b4e9)
+
+running 10 tests
+test ipc::tests::bad_request_gets_error_response ... ok
+test ipc::tests::client_deadline_bounds_an_idle_daemon ... ok
+test ipc::tests::framing_rejects_truncation_and_oversize ... ok
+test ipc::tests::graceful_shutdown_drains_accepted_requests_before_unlocking ... ok
+test ipc::tests::idle_request_is_closed_at_the_transport_deadline ... ok
+test ipc::tests::rejects_symlinked_parent_and_lock ... ok
+test ipc::tests::request_serialization_round_trip ... ok
+test ipc::tests::server_round_trip_over_socket ... ok
+test ipc::tests::singleton_and_private_permissions ... ok
+test ipc::tests::unsafe_paths_and_live_legacy_socket_are_preserved ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 95 filtered out; finished in 10.15s
+
+   Compiling mountd-ipc-fixture v0.4.0 (/home/christian/.local/share/agent-tmp/mountd-ipc-jvknqfpu)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.63s
+     Running tests/ipc_cli.rs (target/portable-daemon/debug/deps/ipc_cli-7bd60cb2dc828e3f)
+
+running 3 tests
+test explain_requires_its_payload_and_preserves_the_request_name ... ok
+test malformed_responses_do_not_report_an_empty_mount_list ... ok
+test status_json_and_daemon_errors ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+   Compiling mountd-ipc-fixture v0.4.0 (/home/christian/.local/share/agent-tmp/mountd-ipc-jvknqfpu)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.76s
+     Running tests/cli_drain.rs (target/portable-daemon/debug/deps/cli_drain-53c6af6b460c9ff1)
+
+running 1 test
+test failed_install_keeps_the_actual_cli_alive_until_registered_cleanup_finishes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+    Checking mountd-ipc-fixture v0.4.0 (/home/christian/.local/share/agent-tmp/mountd-ipc-jvknqfpu)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.80s

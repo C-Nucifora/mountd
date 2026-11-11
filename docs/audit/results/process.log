@@ -1,0 +1,118 @@
+   Compiling mountd-process-fixture v0.4.0 (/home/christian/.local/share/agent-tmp/mountd-process-fixture-5gptzwtq)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.17s
+     Running unittests src/lib.rs (/home/christian/Documents/dev/mountd/target/portable-daemon/debug/deps/mountd_process_fixture-99e94fc7a8f45364)
+
+running 108 tests
+test config::tests::a_bad_gateway_mac_names_the_network_not_a_mount ... ok
+test config::tests::a_bare_mountpoint_name_resolves_against_mount_root ... ok
+test config::tests::a_shared_prefix_is_not_nesting ... ok
+test config::tests::cidr_contains ... ok
+test config::tests::cond_ref_parsing ... ok
+test config::tests::config_rejects_mount_options_that_escape_the_probe_and_timeout_contract ... ok
+test config::tests::new_policy_defaults_are_conservative ... ok
+test config::tests::normalize_mac_pads_and_lowercases ... ok
+test config::tests::normalizes_gateway_mac ... ok
+test config::tests::parses_full_example ... ok
+test config::tests::rejects_a_relative_mountpoint ... ok
+test config::tests::rejects_a_start_longer_than_the_cap ... ok
+test config::tests::rejects_an_endpoint_address_that_looks_like_a_flag ... ok
+test config::tests::rejects_duplicate_mount_names ... ok
+test config::tests::rejects_home_mountpoints_and_ignored_dependency_comparisons ... ok
+test config::tests::rejects_invalid_timers_and_unsafe_mount_values ... ok
+test config::tests::rejects_mount_without_endpoints ... ok
+test config::tests::rejects_mountpoint_case_and_unicode_aliases ... ok
+test config::tests::rejects_nested_mountpoints ... ok
+test config::tests::rejects_network_in_requires ... ok
+test config::tests::rejects_probe_port_zero ... ok
+test config::tests::rejects_smb_without_share ... ok
+test config::tests::rejects_two_mounts_sharing_a_mountpoint ... ok
+test config::tests::rejects_unbounded_retry_values ... ok
+test config::tests::rejects_unknown_network_ref ... ok
+test config::tests::sleep_budget_stays_below_the_system_acknowledgement_window ... ok
+test config::tests::validates_wake_on_lan_settings ... ok
+test cred::tests::a_non_ascii_password_is_decoded_not_returned_as_hex ... ignored, requires explicit macOS disposable Keychain integration run
+test cred::tests::a_password_containing_a_newline_round_trips ... ignored, requires explicit macOS disposable Keychain integration run
+test cred::tests::a_password_that_merely_looks_like_hex_is_left_alone ... ignored, requires explicit macOS disposable Keychain integration run
+test cred::tests::both_security_calls_share_one_deadline ... ok
+test cred::tests::cancelling_either_security_call_reaps_before_releasing_lease ... ok
+test cred::tests::disambiguation_failure_cannot_return_hex_as_password ... ok
+test cred::tests::fake_security_failure_does_not_echo_secret ... ok
+test cred::tests::fetches_password_from_keychain ... ignored, requires explicit macOS disposable Keychain integration run
+test cred::tests::hex_detection_and_decoding ... ok
+test cred::tests::metadata_is_fail_closed_and_debug_hides_secrets ... ok
+test cred::tests::missing_item_yields_missing ... ignored, requires explicit macOS disposable Keychain integration run
+test cred::tests::reasons_are_human_readable ... ok
+test cred::tests::subprocess_timeouts_keep_the_timeout_outcome ... ok
+test cred::tests::timeout_is_distinguishable_from_missing ... ok
+test deps::tests::cancellation_kills_and_reaps_dependency_child ... ok
+test deps::tests::deps_are_checked_concurrently ... ok
+test deps::tests::exit_nonzero_is_down ... ok
+test deps::tests::exit_zero_is_up ... ok
+test deps::tests::invalid_json_is_down ... ok
+test deps::tests::json_field_match_is_up ... ok
+test deps::tests::json_field_mismatch_is_down ... ok
+test deps::tests::json_lookup_paths ... ok
+test deps::tests::missing_command_is_down ... ok
+test deps::tests::nested_json_path_works ... ok
+test deps::tests::timeout_bounds_hanging_command ... ok
+test fingerprint::tests::arp_incomplete_yields_none ... ok
+test fingerprint::tests::failed_query_cannot_supply_network_identity ... ok
+test fingerprint::tests::local_addrs_excludes_loopback ... ok
+test fingerprint::tests::matches_on_subnet_alone ... ok
+test fingerprint::tests::netmask_to_prefix ... ok
+test fingerprint::tests::parses_arp_output_with_short_octets ... ok
+test fingerprint::tests::parses_route_get_no_default ... ok
+test fingerprint::tests::parses_route_get_output ... ok
+test fingerprint::tests::pinned_mac_must_match ... ok
+test mountcmd::tests::cancellation_reaps_term_resistant_child_before_lease_release ... ok
+test mountcmd::tests::command_failure_omits_argv_and_all_helper_output ... ok
+test mountcmd::tests::explicit_empty_options_keep_soft_mounts ... ok
+test mountcmd::tests::explicit_options_keep_safety_defaults ... ok
+test mountcmd::tests::forced_ladder_adds_the_forceful_rungs_last ... ok
+test mountcmd::tests::inherited_pipes_cannot_hold_command_open ... ok
+test mountcmd::tests::ipv6_literals_are_bracketed ... ok
+test mountcmd::tests::mountpoint_rejects_leaf_symlinks ... ok
+test mountcmd::tests::nfs_argv_defaults_to_soft_mount_options ... ok
+test mountcmd::tests::normalize_does_not_follow_a_symlinked_parent ... ok
+test mountcmd::tests::normalize_handles_the_root_directory ... ok
+test mountcmd::tests::normalize_leaves_a_wholly_unknown_path_alone ... ok
+test mountcmd::tests::normalize_resolves_through_missing_intermediate_directories ... ok
+test mountcmd::tests::normalize_trims_trailing_slashes ... ok
+test mountcmd::tests::output_flood_is_rejected_and_child_reaped ... ok
+test mountcmd::tests::polite_ladder_never_forces ... ok
+test mountcmd::tests::possible_path_aliases_are_refused_without_selecting_a_target ... ok
+test mountcmd::tests::shutdown_drain_waits_for_registered_work ... ok
+test mountcmd::tests::smb_argv_defaults_to_a_soft_mount ... ok
+test mountcmd::tests::smb_argv_embeds_escaped_password ... ok
+test mountcmd::tests::smb_source_without_username ... ok
+test mountcmd::tests::stalled_reap_reports_promptly_but_retains_lease ... ok
+test mountcmd::tests::tilde_expansion ... ok
+test mountcmd::tests::timeout_kills_and_reaps_term_resistant_child ... ok
+test mountcmd::tests::unsafe_options_and_mismatched_ports_are_rejected ... ok
+test mountcmd::tests::url_escaping ... ok
+test mtab::tests::parses_the_address_out_of_a_mount_source ... ok
+test probe::tests::cancelled_resolver_keeps_capacity_until_its_thread_finishes ... ok
+test probe::tests::cancelled_selection_drops_probe_futures ... ok
+test probe::tests::drain_waits_for_aborted_nested_producer_before_child_registration ... ok
+test probe::tests::empty_candidates_yield_none ... ok
+test probe::tests::falls_through_to_next_priority_when_first_dead ... ok
+test probe::tests::hung_injected_probe_is_bounded ... ok
+test probe::tests::owned_resolver_thread_returns_numeric_fixture_address ... ok
+test probe::tests::priority_beats_speed_even_when_the_preferred_endpoint_is_slower ... ok
+test probe::tests::probe_fails_against_closed_port ... ok
+test probe::tests::probe_succeeds_against_listener ... ok
+test probe::tests::returns_none_when_all_dead ... ok
+test probe::tests::selects_highest_priority_live_endpoint ... ok
+test watcher::tests::closed_stdout_does_not_prevent_restart ... ok
+test watcher::tests::interface_and_address_events_are_hints ... ok
+test watcher::tests::lookup_noise_is_not_a_hint ... ok
+test wol::tests::accepts_short_octets_and_dashes ... ok
+test wol::tests::magic_packet_layout ... ok
+test wol::tests::rejects_malformed_mac ... ok
+test wol::tests::send_reports_invalid_broadcast ... ok
+test wol::tests::send_to_loopback_broadcast_succeeds ... ok
+
+test result: ok. 103 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 3.00s
+
+    Checking mountd-process-fixture v0.4.0 (/home/christian/.local/share/agent-tmp/mountd-process-fixture-5gptzwtq)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.08s

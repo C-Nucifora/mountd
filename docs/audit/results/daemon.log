@@ -1,0 +1,3 @@
+   Compiling mountd-daemon-fixture v0.4.0 (/home/christian/.local/share/agent-tmp/mountd-daemon-ojn8h05g)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 17.61s
+synthetic daemon singleton, IPC drain and child-reaping fixtures passed
