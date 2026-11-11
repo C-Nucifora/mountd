@@ -90,7 +90,8 @@ os.execv("/bin/{tool}", ["{tool}"] + args)
         path.chmod(0o755)
     env = dict(os.environ, HOME=str(home), PATH=str(tools) + os.pathsep + os.environ["PATH"])
     def run(ok):
-        result = subprocess.run(["zsh", "build.sh", "install"], cwd=work, env=env, capture_output=True, text=True)
+        result = subprocess.run(["zsh", "build.sh", "install"], cwd=work, env=env,
+                                capture_output=True, text=True, timeout=15, umask=0o002)
         assert (result.returncode == 0) == ok, result.stdout + result.stderr
         assert config.read_text() == "synthetic config must survive\n"
         return result
@@ -104,6 +105,8 @@ os.execv("/bin/{tool}", ["{tool}"] + args)
         assert not (home / "loaded").exists(), stage
     (home / "fail-after").write_text("bootstrap")
     run(True)
+    state_dir = home / "Library/Application Support/mountd"
+    assert state_dir.stat().st_mode & 0o777 == 0o700, "state dir must be private under umask 0002"
     app = home / "Applications/Mountd Menu Bar.app"
     binary = app / "Contents/MacOS/mountd-menubar"
     plist = home / "Library/LaunchAgents/org.mountd.menubar.plist"
@@ -131,7 +134,7 @@ os.execv("/bin/{tool}", ["{tool}"] + args)
     # A failed recovery must preserve the backup and report its path.
     (home / "fail-restart").touch()
     result = run(False)
-    assert "rollback incomplete; recovery files retained" in result.stderr
+    assert "rollback incomplete; recovery files retained" in result.stderr, result.stdout + result.stderr
     backups = list((home / "Applications").glob(".mountd-install.*"))
     assert len(backups) == 1
     assert (backups[0] / "old.plist").read_bytes() == old_plist
@@ -144,7 +147,7 @@ os.execv("/bin/{tool}", ["{tool}"] + args)
         (home / "fail-once").touch()
         (home / "fail-recovery").write_text(stage)
         result = run(False)
-        assert "rollback incomplete; recovery files retained" in result.stderr
+        assert "rollback incomplete; recovery files retained" in result.stderr, result.stdout + result.stderr
         backups = list((home / "Applications").glob(".mountd-install.*"))
         assert len(backups) == 1
         assert (backups[0] / "old.plist").read_bytes() == old_plist
@@ -172,7 +175,7 @@ os.execv("/bin/{tool}", ["{tool}"] + args)
         previous = plist.read_bytes()
         (home / "signal-client").write_text(stage)
         result = run(False)
-        assert "service state uncertain; recovery files retained" in result.stderr
+        assert "service state uncertain; recovery files retained" in result.stderr, result.stdout + result.stderr
         assert (home / "pending").read_text() == stage
         assert stage in (home / "calls").read_text().splitlines()[-1]
         assert binary.read_text() == "synthetic" and plist.exists()
@@ -192,6 +195,19 @@ os.execv("/bin/{tool}", ["{tool}"] + args)
         run(True)
     assert config.read_text() == "synthetic config must survive\n"
     assert not list((home / "Applications").glob(".mountd-install.*"))
+    # Existing state directories and symlink targets keep their mode and owner.
+    state_dir.chmod(0o750)
+    previous = state_dir.stat()
+    run(True)
+    assert (state_dir.stat().st_mode, state_dir.stat().st_uid, state_dir.stat().st_gid) == (
+        previous.st_mode, previous.st_uid, previous.st_gid)
+    target = root / "existing-state"
+    state_dir.rename(target)
+    state_dir.symlink_to(target, target_is_directory=True)
+    run(True)
+    assert state_dir.is_symlink()
+    assert (target.stat().st_mode, target.stat().st_uid, target.stat().st_gid) == (
+        previous.st_mode, previous.st_uid, previous.st_gid)
     calls = (home / "calls").read_text()
     assert "gui/4242/org.mountd.menubar" in calls
     assert "pkill" not in (work / "build.sh").read_text()

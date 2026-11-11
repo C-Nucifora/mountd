@@ -1,0 +1,12 @@
+$ python3 /home/christian/.local/share/agent-tmp/mountd-r1-install-fix-20261112/before-fix/tests/audit/round1-installer-overlap.py
+second update returned success with update-b; after first rollback: old-app
+Traceback (most recent call last):
+  File "/home/christian/.local/share/agent-tmp/mountd-r1-install-fix-20261112/before-fix/tests/audit/round1-installer-overlap.py", line 61, in <module>
+    exec(compile(setup + scenario, str(fixture), "exec"), {"__file__": str(fixture)})
+    ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/christian/.local/share/agent-tmp/mountd-r1-install-fix-20261112/before-fix/menubar/test-build.py", line 141, in <module>
+    (home / "fail-restart").unlink()
+               ^^^^^^^^^^^^^^^^^^^^
+AssertionError: failed concurrent installer rolled back a successful update
+
+exit: 1; expected: 1; elapsed: 1.71s

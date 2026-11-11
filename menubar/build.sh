@@ -16,6 +16,25 @@ BUILD_DIR="build"
 APP="$BUILD_DIR/$APP_NAME.app"
 BIN="$APP/Contents/MacOS/mountd-menubar"
 
+if ! zmodload zsh/system || ! zsystem supports flock; then
+    echo "menu bar builds require zsh/system file locking" >&2
+    exit 1
+fi
+acquire_lock() {
+    (umask 077; : >> "$1")
+    if ! zsystem flock -t 0 "$1"; then
+        print -u2 -- "another menu bar build/install is active, or lock unavailable: $1"
+        exit 1
+    fi
+}
+# Keep these inodes and locks until shell exit, including the EXIT rollback.
+if [[ "${1:-}" == "install" ]]; then
+    (umask 077; mkdir -p "$HOME/Library/Application Support/mountd")
+    acquire_lock "$HOME/Library/Application Support/mountd/menubar-install.lock"
+fi
+mkdir -p "$BUILD_DIR"
+acquire_lock "$BUILD_DIR/.menubar-build.lock"
+
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
@@ -67,7 +86,8 @@ if [[ "${1:-}" == "install" ]]; then
     UNSETTLED=0
     service_loaded() {
         local details
-        if details="$(launchctl print "$SERVICE" 2>&1)"; then
+        # Preserve the helper's exit status inside EXIT rollback while locks are held.
+        if details="$(exec launchctl print "$SERVICE" 2>&1)"; then
             return 0
         elif [[ "$details" == *'Could not find service "org.mountd.menubar"'* ]]; then
             return 1

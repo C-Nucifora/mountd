@@ -1,0 +1,6 @@
+$ python3 tests/audit/round1-installer-overlap.py
+install/write, rollback restore/restart/cleanup reject overlap; retry passed
+build-only overlap rejected across HOME; compile-failure cleanup and retry passed
+compiler children inherit no lock descriptors; shell retains transaction ownership
+
+exit: 0; expected: 0; elapsed: 3.33s
