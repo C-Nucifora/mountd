@@ -64,6 +64,7 @@ if [[ "${1:-}" == "install" ]]; then
     HAD_PLIST=0
     CHANGED=0
     STOPPED=0
+    UNSETTLED=0
     service_loaded() {
         local details
         if details="$(launchctl print "$SERVICE" 2>&1)"; then
@@ -76,6 +77,11 @@ if [[ "${1:-}" == "install" ]]; then
     }
     stop_service() {
         launchctl bootout "$SERVICE" && return 0
+        local launch_exit=$?
+        if (( launch_exit > 128 )); then
+            UNSETTLED=1
+            return 1
+        fi
         if service_loaded; then
             return 1
         else
@@ -84,10 +90,19 @@ if [[ "${1:-}" == "install" ]]; then
     }
     start_service() {
         launchctl bootstrap "gui/$(id -u)" "$PLIST" && return 0
+        local launch_exit=$?
+        if (( launch_exit > 128 )); then
+            UNSETTLED=1
+            return 1
+        fi
         # The request may have succeeded before its client reported failure.
         service_loaded
     }
     rollback() {
+        if [[ "$UNSETTLED" == 1 ]]; then
+            print -u2 -- "service state uncertain; recovery files retained at $STAGE"
+            return 1
+        fi
         local failed=0
         if [[ "$CHANGED" == 1 ]]; then
             if service_loaded; then

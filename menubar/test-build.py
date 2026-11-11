@@ -27,11 +27,15 @@ with tempfile.TemporaryDirectory(prefix="mountd-install-fixture-") as temp:
         "ditto": '#!/bin/sh\nshift; shift; shift\ncp -R "$1" "$2"\n',
         "id": '#!/bin/sh\necho 4242\n',
         "launchctl": '''#!/usr/bin/python3
-import os, pathlib, sys
+import os, pathlib, signal, sys
 home = pathlib.Path(os.environ["HOME"])
 args = sys.argv[1:]
 with (home / "calls").open("a") as log: log.write(repr(args) + "\\n")
 loaded = home / "loaded"
+signal_client = home / "signal-client"
+if signal_client.exists() and signal_client.read_text() == args[0]:
+    (home / "pending").write_text(args[0])
+    os.kill(os.getpid(), signal.SIGTERM)
 if args[0] == "print":
     if (home / "permission-denied").exists():
         print("permission denied", file=sys.stderr); sys.exit(1)
@@ -164,6 +168,28 @@ os.execv("/bin/{tool}", ["{tool}"] + args)
         run(True)
         assert (home / "loaded").exists(), stage
         assert binary.read_text() == "synthetic", stage
+    for stage in ["bootstrap", "bootout"]:
+        previous = plist.read_bytes()
+        (home / "signal-client").write_text(stage)
+        result = run(False)
+        assert "service state uncertain; recovery files retained" in result.stderr
+        assert (home / "pending").read_text() == stage
+        assert stage in (home / "calls").read_text().splitlines()[-1]
+        assert binary.read_text() == "synthetic" and plist.exists()
+        assert (home / "loaded").exists() == (stage == "bootout")
+        backups = list((home / "Applications").glob(".mountd-install.*"))
+        assert len(backups) == 1
+        assert (backups[0] / "old.plist").read_bytes() == previous
+        if stage == "bootstrap":
+            assert (backups[0] / "old.app/Contents/MacOS/mountd-menubar").read_text() == "synthetic"
+            (home / "loaded").touch()
+        else:
+            (home / "loaded").unlink()
+        # The driver has now released and settled the synthetic server mutation.
+        (home / "signal-client").unlink()
+        (home / "pending").unlink()
+        shutil.rmtree(backups[0])
+        run(True)
     assert config.read_text() == "synthetic config must survive\n"
     assert not list((home / "Applications").glob(".mountd-install.*"))
     calls = (home / "calls").read_text()
