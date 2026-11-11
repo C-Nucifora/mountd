@@ -168,6 +168,14 @@ impl Engine {
             .context("mount operation already in flight")?;
         let lease: OperationLease = Arc::new((claim, lifecycle));
 
+        // Accepting a new mount request ends the earlier manual unmount intent.
+        self.runtime
+            .lock()
+            .await
+            .entry(name.to_string())
+            .or_default()
+            .user_suppressed = false;
+
         let mountpoint = self.mountpoint_of(&spec);
         if crate::mtab::find_by_mountpoint(&self.ops.list_mounts()?, &mountpoint).is_some() {
             // Nothing to do, and attempting anyway would stack a second mount

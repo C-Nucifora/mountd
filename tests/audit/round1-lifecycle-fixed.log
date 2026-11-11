@@ -1,0 +1,26 @@
+5d60f728b38039f1cbc3ec525fe8e657efbe1699761995dbb43bb5e58e121dd7 /home/christian/Documents/dev/mountd/src/engine.rs
+1e13108279f12398c0c9b893ecf5e00543828e696e4dc7d3793b69c08481071d /home/christian/Documents/dev/mountd/src/ops.rs
+526b411f7e136c1a1a01bbf46882673135cb07a2980fcdeadf74707250a2d367 /home/christian/Documents/dev/mountd/src/state.rs
+1ce14c42004a76da7f2516338b16cf0f4d8f458b079b5b11cd35a4d15df94e12 /home/christian/Documents/dev/mountd/tests/portable-reconciler.py
+993b5aff7d4262c55a89ce336bac4c126fd798f7efc02c7a8e5c3d66052cfe62 /home/christian/Documents/dev/mountd/tests/audit/round1-lifecycle.rs
+b25231f2fa4f8274800b1aa7cf35e5e15facdeb92e1bb1f13a27162c0749ce45 /home/christian/Documents/dev/mountd/tests/audit/round1-lifecycle.py
+   Compiling mountd-round1-lifecycle-fixture v0.4.0 (/home/christian/.local/share/agent-tmp/mountd-reconciler-61369mg9)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.77s
+     Running unittests src/lib.rs (/home/christian/Documents/dev/mountd/target/portable-daemon/debug/deps/mountd-0904a8fd9a2edbd0)
+
+running 8 tests
+test engine::round1_lifecycle::cancelled_operations_block_reload_through_removal_and_readdition ... reload cancellation matrix: 4 gated stages x 3 config replacements passed
+ok
+test engine::round1_lifecycle::explicit_mount_of_reappeared_volume_clears_manual_intent ... reappeared volume: suppression=false, status=[MountStatus { name: "nas", state: "mounted via 10.17.0.1", mountpoint: "/private/tmp/mountd-round1-lifecycle-never-created", mounted_via: Some("10.17.0.1"), last_error: None, state_kind: "mounted" }], calls=[Probe { address: "10.17.0.1" }, FetchPassword { server: "10.17.0.1", account: "synthetic" }, Probe { address: "10.17.0.1" }, Mount { name: "nas", address: "10.17.0.1" }, Unmount { mountpoint: "/private/tmp/mountd-round1-lifecycle-never-created", force: true }, Unmount { mountpoint: "/private/tmp/mountd-round1-lifecycle-never-created", force: false }, Probe { address: "10.17.0.1" }, FetchPassword { server: "10.17.0.1", account: "synthetic" }, Probe { address: "10.17.0.1" }, Mount { name: "nas", address: "10.17.0.1" }]
+ok
+test engine::round1_lifecycle::failed_explicit_mount_reenables_automatic_retry ... failed explicit mount retry: status=[MountStatus { name: "nas", state: "mounted via 10.17.0.1", mountpoint: "/private/tmp/mountd-round1-lifecycle-never-created", mounted_via: Some("10.17.0.1"), last_error: None, state_kind: "mounted" }], calls=[Probe { address: "10.17.0.1" }, FetchPassword { server: "10.17.0.1", account: "synthetic" }, Probe { address: "10.17.0.1" }, Mount { name: "nas", address: "10.17.0.1" }, Unmount { mountpoint: "/private/tmp/mountd-round1-lifecycle-never-created", force: true }, Probe { address: "10.17.0.1" }, FetchPassword { server: "10.17.0.1", account: "synthetic" }, Probe { address: "10.17.0.1" }, Mount { name: "nas", address: "10.17.0.1" }, Probe { address: "10.17.0.1" }, FetchPassword { server: "10.17.0.1", account: "synthetic" }, Probe { address: "10.17.0.1" }, Mount { name: "nas", address: "10.17.0.1" }]
+ok
+test engine::round1_lifecycle::queued_sleep_wake_sleep_waits_for_reap_without_intermediate_mount ... ok
+test engine::round1_lifecycle::reload_waits_for_successful_pending_unmount_then_uses_new_endpoint ... ok
+test engine::round1_lifecycle::removal_leaves_volume_and_readdition_adopts_actual_source ... ok
+test engine::round1_lifecycle::shutdown_rejects_queued_wake_reload_and_final_mount ... shutdown matrix: credential/preparation x automatic/manual passed
+ok
+test engine::round1_lifecycle::successful_manual_sequences_match_model ... model: 256 sequences, 1024 lifecycle actions passed
+ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 208 filtered out; finished in 1.22s
