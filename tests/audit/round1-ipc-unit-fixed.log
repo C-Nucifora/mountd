@@ -1,0 +1,34 @@
+COMMAND ["cargo", "test", "--offline", "--locked", "--manifest-path", "/home/christian/.local/share/agent-tmp/round1-ipc-hq1d8uta/Cargo.toml", "--lib", "round1_ipc", "--", "--nocapture"]
+   Compiling mountd-round1-ipc-breaker-fixture v0.4.0 (/home/christian/.local/share/agent-tmp/round1-ipc-hq1d8uta)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.71s
+     Running unittests src/lib.rs (target/portable-daemon/debug/deps/mountd-40e6da3b64a7cbdc)
+
+running 10 tests
+test ipc::round1_ipc::accepted_mutations_survive_disconnect_half_close_and_shutdown ... MUTATION_PEERS cases=9 completed=9 premature_unlocks=0
+ok
+test ipc::round1_ipc::completed_connections_release_slots_and_fds ... CHURN requests=1024 fd_before=12 fd_after=12 elapsed_ms=247
+ok
+test ipc::round1_ipc::config_acceptance_implies_transportable_name ... ACCEPTED_NAME rejected_at_config=invalid configuration: mount name is too long for a control request after JSON encoding
+ok
+test ipc::round1_ipc::config_name_limit_matches_named_request_frames ... ok
+test ipc::round1_ipc::idle_saturated_shutdown_is_bounded_and_holds_lock ... IDLE_SHUTDOWN peers=64 elapsed_ms=10001 fd_before=12 fd_after=10
+ok
+test ipc::round1_ipc::incomplete_mutation_frames_never_mutate ... PREFIXES rejected=32 mutations=0
+ok
+test ipc::round1_ipc::request_response_caps_include_newline_consistently ... RESPONSE serialized_bytes=98304 ok=true
+RESPONSE serialized_bytes=4194303 ok=true
+RESPONSE serialized_bytes=4194304 ok=false
+RESPONSE serialized_bytes=4194305 ok=false
+FRAME_BOUNDARIES cases=17
+ok
+test ipc::round1_ipc::saturation_rejects_excess_then_recovers ... SATURATION admitted=64 rejected=32 completed=64 fd_before=12 fd_peak=140 fd_after=12
+ok
+test ipc::round1_ipc::stalled_response_writer_times_out ... STALLED_WRITER payload_bytes=1048576 sendbuf_requested=4096 elapsed_ms=10079
+ok
+test ipc::round1_ipc::valid_unicode_and_escaped_names_round_trip ... NAME_ROUNDTRIP cases=8
+ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 105 filtered out; finished in 22.17s
+
+
+CARGO_EXIT=0

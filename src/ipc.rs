@@ -14,6 +14,7 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tracing::warn;
 
+use crate::config::MAX_CONTROL_REQUEST_BYTES as MAX_REQUEST_BYTES;
 use crate::engine::{Engine, MountStatus};
 
 /// Socket path: `~/Library/Application Support/mountd/mountd.sock`.
@@ -107,8 +108,6 @@ pub async fn handle_request(engine: &Engine, req: Request) -> Response {
     }
 }
 
-/// A request line longer than this is a bug or a stuck pipe, not a command.
-const MAX_REQUEST_BYTES: u64 = 64 * 1024;
 /// A client that connects and then says nothing must not pin a task and an fd
 /// forever; fd exhaustion is what turns a stuck client into a dead server.
 const CONN_TIMEOUT: Duration = Duration::from_secs(10);

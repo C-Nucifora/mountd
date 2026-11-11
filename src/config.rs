@@ -8,6 +8,9 @@ use std::str::FromStr;
 use serde::Deserialize;
 use thiserror::Error;
 
+// Shared with IPC so every validated mount name fits a named control request.
+pub(crate) const MAX_CONTROL_REQUEST_BYTES: u64 = 64 * 1024;
+
 #[derive(Debug, Error)]
 pub enum ConfigError {
     #[error("TOML parse error: {0}")]
@@ -552,6 +555,19 @@ impl Config {
             if m.name.trim().is_empty() || m.name.chars().any(char::is_control) {
                 return Err(invalid(
                     "name must be nonempty and contain no control characters",
+                ));
+            }
+            // Controls are forbidden above; only quotes and backslashes expand in JSON.
+            let name_bytes = m.name.len()
+                + m.name
+                    .bytes()
+                    .filter(|&b| matches!(b, b'"' | b'\\'))
+                    .count();
+            // Unmount and explain have the longest named-command envelopes.
+            let envelope = br#"{"cmd":"unmount","name":""}"#.len() + 1;
+            if name_bytes > MAX_CONTROL_REQUEST_BYTES as usize - envelope {
+                return Err(ConfigError::InvalidConfig(
+                    "mount name is too long for a control request after JSON encoding".into(),
                 ));
             }
             if m.policy.unmount_grace_secs > 86_400

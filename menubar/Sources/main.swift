@@ -224,12 +224,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
           })
         sub.addItem(
           closureItem("Unmount") { [weak self] in
-            self?.action(["unmount", s.name])
+            self?.action(["unmount", "--", s.name])
           })
       } else {
         sub.addItem(
           closureItem("Mount Now") { [weak self] in
-            self?.action(["mount", s.name])
+            self?.action(["mount", "--", s.name])
           })
       }
       if let via = s.mounted_via {

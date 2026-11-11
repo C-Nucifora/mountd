@@ -1,0 +1,792 @@
+diff --git a/tests/audit/round1-ipc-breaker.py b/tests/audit/round1-ipc-breaker.py
+new file mode 100644
+index 0000000..087e921
+--- /dev/null
++++ b/tests/audit/round1-ipc-breaker.py
+@@ -0,0 +1,94 @@
++#!/usr/bin/env python3
++"""New round-one IPC regressions; production sources remain unchanged.
++
++Run under the shared heavy.lock. Reuses portable-ipc-config.py's fake boundaries,
++adds observable gated mutations, and only runs the new round1 tests. Exit 1 means
++at least one genuine regression assertion failed; inspect both retained logs.
++"""
++import json
++import os
++from pathlib import Path
++import runpy
++import shutil
++import subprocess
++import tempfile
++
++ROOT = Path('/home/christian/Documents/dev/mountd')
++OWNED = ROOT / 'tests/audit'
++
++
++def replace_once(text, old, new):
++    assert text.count(old) == 1, old
++    return text.replace(old, new, 1)
++
++
++def main():
++    env = dict(os.environ, TMPDIR='/home/christian/.local/share/agent-tmp',
++               CARGO_BUILD_JOBS='1', CARGO_INCREMENTAL='0', RUST_TEST_THREADS='1',
++               CARGO_TARGET_DIR=str(ROOT / 'target/portable-daemon'))
++    fake = runpy.run_path(str(ROOT / 'tests/portable-ipc-config.py'))['FAKE_ENGINE']
++    fake = replace_once(fake, 'cfg: Config }', '''cfg: Config,
++        pub entered: std::sync::atomic::AtomicUsize,
++        pub completed: std::sync::atomic::AtomicUsize,
++        pub permits: tokio::sync::Semaphore,
++        pub padding: std::sync::atomic::AtomicUsize,
++    }''')
++    fake = replace_once(fake, 'cfg })', '''cfg,
++        entered: std::sync::atomic::AtomicUsize::new(0),
++        completed: std::sync::atomic::AtomicUsize::new(0),
++        permits: tokio::sync::Semaphore::new(0),
++        padding: std::sync::atomic::AtomicUsize::new(0),
++    })''')
++    fake = replace_once(fake, 'state: "idle".into()',
++                        'state: "x".repeat(self.padding.load(std::sync::atomic::Ordering::SeqCst))')
++    for label in ('mounts', 'unmounts', 'reload'):
++        fake = replace_once(fake, f'anyhow::bail!("fixture forbids real {label}")',
++                            '''self.entered.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
++            self.permits.acquire().await.unwrap().forget();
++            self.completed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
++            Ok(())''')
++    # Native effects remain unreachable. Gated methods only update counters.
++    with tempfile.TemporaryDirectory(prefix='round1-ipc-', dir=env['TMPDIR']) as name:
++        fixture = Path(name)
++        (fixture / 'src').mkdir()
++        (fixture / 'tests').mkdir()
++        manifest = (ROOT / 'Cargo.toml').read_text()
++        start, end = manifest.index('[lib]'), manifest.index('[dependencies]')
++        manifest = manifest[:start] + (
++            '[lib]\nname = "mountd"\npath = "src/lib.rs"\n\n'
++            '[[bin]]\nname = "mountctl"\npath = '
++            + json.dumps(str(ROOT / 'src/bin/mountctl.rs')) + '\n\n'
++        ) + manifest[end:]
++        package = 'mountd-round1-ipc-breaker-fixture'
++        (fixture / 'Cargo.toml').write_text(manifest.replace('name = "mountd"', f'name = "{package}"', 1))
++        (fixture / 'Cargo.lock').write_text((ROOT / 'Cargo.lock').read_text().replace('name = "mountd"', f'name = "{package}"', 1))
++        lib = 'pub type BoxFut<T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send>>;\n'
++        for module in ('config', 'ipc', 'reconcile', 'probe', 'wol', 'mountcmd'):
++            source = ROOT / f'src/{module}.rs'
++            if module == 'ipc':
++                source = fixture / 'src/ipc.rs'
++                source.write_text((ROOT / 'src/ipc.rs').read_text() + '\n#[cfg(test)]\n#[path = '
++                                  + json.dumps(str(OWNED / 'round1-ipc-unit.rs'))
++                                  + '] mod round1_ipc;\n')
++            lib += '#[path = ' + json.dumps(str(source)) + f'] pub mod {module};\n'
++        (fixture / 'src/lib.rs').write_text(lib + fake)
++        shutil.copyfile(OWNED / 'round1-ipc-cli.rs', fixture / 'tests/round1_ipc_cli.rs')
++        failed = False
++        for label, selection in (('unit', ['--lib', 'round1_ipc']),
++                                 ('cli', ['--test', 'round1_ipc_cli'])):
++            command = ['cargo', 'test', '--offline', '--locked', '--manifest-path',
++                       str(fixture / 'Cargo.toml'), *selection, '--', '--nocapture']
++            log_path = OWNED / f'round1-ipc-{label}.log'
++            with log_path.open('w') as log:
++                log.write('COMMAND ' + json.dumps(command) + '\n')
++                log.flush()
++                result = subprocess.run(command, cwd=ROOT, env=env, stdout=log,
++                                        stderr=subprocess.STDOUT, timeout=240)
++                log.write(f'\nCARGO_EXIT={result.returncode}\n')
++            print(f'{label}: cargo exit {result.returncode}; {log_path}', flush=True)
++            failed |= result.returncode != 0
++        raise SystemExit(1 if failed else 0)
++
++
++if __name__ == '__main__':
++    main()
+diff --git a/tests/audit/round1-ipc-unit.rs b/tests/audit/round1-ipc-unit.rs
+new file mode 100644
+index 0000000..49c7a33
+--- /dev/null
++++ b/tests/audit/round1-ipc-unit.rs
+@@ -0,0 +1,393 @@
++use super::*;
++use crate::config::Config;
++use std::sync::atomic::Ordering;
++use std::time::Instant;
++use tokio::sync::oneshot;
++
++fn parse_config(name: &str) -> Result<Config, crate::config::ConfigError> {
++    let value = format!(
++        "[[mount]]\nname={}\nprotocol=\"nfs\"\nexport=\"/synthetic\"\nmountpoint=\"/synthetic\"\n[[mount.endpoint]]\naddress=\"127.0.0.1\"\n",
++        serde_json::to_string(name).unwrap()
++    );
++    Config::from_toml_str(&value)
++}
++
++fn config(name: &str) -> Config {
++    parse_config(name).unwrap()
++}
++
++struct Server {
++    _dir: tempfile::TempDir,
++    path: PathBuf,
++    engine: Arc<Engine>,
++    stop: oneshot::Sender<()>,
++    task: tokio::task::JoinHandle<Result<()>>,
++}
++
++impl Server {
++    async fn new(cfg: Config) -> Self {
++        let dir = tempfile::tempdir().unwrap();
++        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
++        let path = dir.path().join("s");
++        let (listener, lock) = bind_socket(&path).await.unwrap();
++        let engine = Engine::new(PathBuf::from("/nonexistent"), cfg);
++        let (stop, rx) = oneshot::channel();
++        let task = tokio::spawn(serve_bound_until(engine.clone(), listener, lock, async {
++            let _ = rx.await;
++        }));
++        Self {
++            _dir: dir,
++            path,
++            engine,
++            stop,
++            task,
++        }
++    }
++
++    async fn finish(self) {
++        self.stop.send(()).unwrap();
++        tokio::time::timeout(Duration::from_secs(12), self.task)
++            .await
++            .unwrap()
++            .unwrap()
++            .unwrap();
++        let _replacement = bind_socket(&self.path).await.unwrap();
++    }
++}
++
++async fn wait_count(count: &std::sync::atomic::AtomicUsize, expected: usize) {
++    tokio::time::timeout(Duration::from_secs(2), async {
++        while count.load(Ordering::SeqCst) != expected {
++            tokio::task::yield_now().await;
++        }
++    })
++    .await
++    .unwrap();
++}
++
++fn fds() -> usize {
++    std::fs::read_dir("/proc/self/fd").unwrap().count()
++}
++
++#[tokio::test]
++async fn completed_connections_release_slots_and_fds() {
++    let server = Server::new(config("normal")).await;
++    assert!(
++        client_request(&server.path, &Request::Poke)
++            .await
++            .unwrap()
++            .ok
++    );
++    let before = fds();
++    let started = Instant::now();
++    for _ in 0..1024 {
++        assert!(
++            client_request_with_timeout(&server.path, &Request::Poke, Duration::from_secs(1))
++                .await
++                .unwrap()
++                .ok
++        );
++    }
++    tokio::time::sleep(Duration::from_millis(20)).await;
++    let after = fds();
++    eprintln!(
++        "CHURN requests=1024 fd_before={before} fd_after={after} elapsed_ms={}",
++        started.elapsed().as_millis()
++    );
++    assert!(after <= before, "completed connection fd growth");
++    server.finish().await;
++}
++
++#[tokio::test]
++async fn saturation_rejects_excess_then_recovers() {
++    let server = Server::new(config("normal")).await;
++    let before = fds();
++    let mut peers = Vec::new();
++    for n in 1..=64 {
++        let mut peer = UnixStream::connect(&server.path).await.unwrap();
++        peer.write_all(b"{\"cmd\":\"reload\"}\n").await.unwrap();
++        peers.push(peer);
++        wait_count(&server.engine.entered, n).await;
++    }
++    let saturated = fds();
++    for _ in 0..32 {
++        assert!(client_request_with_timeout(
++            &server.path,
++            &Request::Status,
++            Duration::from_millis(500)
++        )
++        .await
++        .is_err());
++    }
++    assert_eq!(server.engine.entered.load(Ordering::SeqCst), 64);
++    assert_eq!(fds(), saturated);
++    server.engine.permits.add_permits(64);
++    for peer in &mut peers {
++        let line = read_frame(peer, MAX_RESPONSE_BYTES).await.unwrap();
++        assert!(serde_json::from_str::<Response>(&line).unwrap().ok);
++    }
++    drop(peers);
++    assert!(
++        client_request(&server.path, &Request::Status)
++            .await
++            .unwrap()
++            .ok
++    );
++    tokio::time::sleep(Duration::from_millis(20)).await;
++    let after = fds();
++    eprintln!("SATURATION admitted=64 rejected=32 completed={} fd_before={before} fd_peak={saturated} fd_after={after}", server.engine.completed.load(Ordering::SeqCst));
++    assert!(after <= before);
++    server.finish().await;
++}
++
++#[tokio::test]
++async fn accepted_mutations_survive_disconnect_half_close_and_shutdown() {
++    let mut cases = 0;
++    for request in [
++        Request::Mount {
++            name: "normal".into(),
++        },
++        Request::Unmount {
++            name: "normal".into(),
++        },
++        Request::Reload,
++    ] {
++        for mode in ["disconnect", "half-close", "no-read"] {
++            let server = Server::new(config("normal")).await;
++            let mut peer = UnixStream::connect(&server.path).await.unwrap();
++            peer.write_all(format!("{}\n", serde_json::to_string(&request).unwrap()).as_bytes())
++                .await
++                .unwrap();
++            wait_count(&server.engine.entered, 1).await;
++            if mode == "half-close" {
++                peer.shutdown().await.unwrap();
++            }
++            let mut peer = if mode == "disconnect" {
++                drop(peer);
++                None
++            } else {
++                Some(peer)
++            };
++            assert!(
++                client_request(&server.path, &Request::Status)
++                    .await
++                    .unwrap()
++                    .ok
++            );
++            server.stop.send(()).unwrap();
++            let mut task = server.task;
++            assert!(tokio::time::timeout(Duration::from_millis(25), &mut task)
++                .await
++                .is_err());
++            assert!(bind_socket(&server.path).await.is_err());
++            assert_eq!(server.engine.completed.load(Ordering::SeqCst), 0);
++            server.engine.permits.add_permits(1);
++            if mode == "half-close" {
++                let line = read_frame(peer.as_mut().unwrap(), MAX_RESPONSE_BYTES)
++                    .await
++                    .unwrap();
++                assert!(serde_json::from_str::<Response>(&line).unwrap().ok);
++            }
++            tokio::time::timeout(Duration::from_secs(2), task)
++                .await
++                .unwrap()
++                .unwrap()
++                .unwrap();
++            assert_eq!(server.engine.completed.load(Ordering::SeqCst), 1);
++            let _replacement = bind_socket(&server.path).await.unwrap();
++            cases += 1;
++        }
++    }
++    eprintln!("MUTATION_PEERS cases={cases} completed=9 premature_unlocks=0");
++}
++
++#[tokio::test]
++async fn incomplete_mutation_frames_never_mutate() {
++    let server = Server::new(config("normal")).await;
++    let full = b"{\"cmd\":\"mount\",\"name\":\"normal\"}\n";
++    for cut in 0..full.len() {
++        let mut peer = UnixStream::connect(&server.path).await.unwrap();
++        peer.write_all(&full[..cut]).await.unwrap();
++        peer.shutdown().await.unwrap();
++        let mut reply = Vec::new();
++        tokio::time::timeout(Duration::from_secs(1), peer.read_to_end(&mut reply))
++            .await
++            .unwrap()
++            .unwrap();
++        assert!(reply.is_empty());
++    }
++    assert_eq!(server.engine.entered.load(Ordering::SeqCst), 0);
++    eprintln!("PREFIXES rejected={} mutations=0", full.len());
++    server.finish().await;
++}
++
++#[tokio::test]
++async fn idle_saturated_shutdown_is_bounded_and_holds_lock() {
++    let server = Server::new(config("normal")).await;
++    let before = fds();
++    let mut peers = Vec::new();
++    for _ in 0..64 {
++        peers.push(UnixStream::connect(&server.path).await.unwrap());
++    }
++    // Linux resource observation establishes all 64 server fds were accepted.
++    tokio::time::timeout(Duration::from_secs(2), async {
++        while fds() != before + 128 {
++            tokio::task::yield_now().await;
++        }
++    })
++    .await
++    .unwrap();
++    let started = Instant::now();
++    server.stop.send(()).unwrap();
++    let mut task = server.task;
++    assert!(tokio::time::timeout(Duration::from_millis(50), &mut task)
++        .await
++        .is_err());
++    assert!(bind_socket(&server.path).await.is_err());
++    tokio::time::timeout(Duration::from_secs(12), task)
++        .await
++        .unwrap()
++        .unwrap()
++        .unwrap();
++    let elapsed = started.elapsed();
++    assert!(elapsed >= Duration::from_secs(9));
++    drop(peers);
++    eprintln!(
++        "IDLE_SHUTDOWN peers=64 elapsed_ms={} fd_before={before} fd_after={}",
++        elapsed.as_millis(),
++        fds()
++    );
++    let _replacement = bind_socket(&server.path).await.unwrap();
++}
++
++#[tokio::test]
++async fn stalled_response_writer_times_out() {
++    let engine = Engine::new(PathBuf::from("/nonexistent"), config("normal"));
++    engine.padding.store(1024 * 1024, Ordering::SeqCst);
++    let (mut peer, socket) = UnixStream::pair().unwrap();
++    let sndbuf: libc::c_int = 4096;
++    assert_eq!(
++        unsafe {
++            libc::setsockopt(
++                socket.as_raw_fd(),
++                libc::SOL_SOCKET,
++                libc::SO_SNDBUF,
++                &sndbuf as *const _ as *const libc::c_void,
++                std::mem::size_of_val(&sndbuf) as libc::socklen_t,
++            )
++        },
++        0
++    );
++    peer.write_all(b"{\"cmd\":\"status\"}\n").await.unwrap();
++    let started = Instant::now();
++    let error = tokio::time::timeout(Duration::from_secs(12), serve_conn(engine, socket))
++        .await
++        .unwrap()
++        .unwrap_err();
++    assert!(error
++        .downcast_ref::<tokio::time::error::Elapsed>()
++        .is_some());
++    eprintln!(
++        "STALLED_WRITER payload_bytes=1048576 sendbuf_requested=4096 elapsed_ms={}",
++        started.elapsed().as_millis()
++    );
++}
++
++#[tokio::test]
++async fn request_response_caps_include_newline_consistently() {
++    let mut cases = 0;
++    for cap in [1, 2, 3, 31, 4096, MAX_REQUEST_BYTES] {
++        for len in [cap.saturating_sub(1), cap, cap + 1] {
++            if len == 0 {
++                continue;
++            }
++            let mut frame = vec![b' '; len as usize];
++            *frame.last_mut().unwrap() = b'\n';
++            assert_eq!(read_frame(&frame[..], cap).await.is_ok(), len <= cap);
++            cases += 1;
++        }
++    }
++    let server = Server::new(config("normal")).await;
++    let base = serde_json::to_string(&handle_request(&server.engine, Request::Status).await)
++        .unwrap()
++        .len();
++    for payload in [
++        96 * 1024,
++        MAX_RESPONSE_BYTES as usize - 1,
++        MAX_RESPONSE_BYTES as usize,
++        MAX_RESPONSE_BYTES as usize + 1,
++    ] {
++        server
++            .engine
++            .padding
++            .store(payload - base, Ordering::SeqCst);
++        let response = client_request(&server.path, &Request::Status)
++            .await
++            .unwrap();
++        assert_eq!(response.ok, payload < MAX_RESPONSE_BYTES as usize);
++        if !response.ok {
++            assert_eq!(response.error.as_deref(), Some("IPC response too large"));
++        }
++        eprintln!("RESPONSE serialized_bytes={payload} ok={}", response.ok);
++    }
++    eprintln!("FRAME_BOUNDARIES cases={cases}");
++    server.finish().await;
++}
++
++#[tokio::test]
++async fn valid_unicode_and_escaped_names_round_trip() {
++    let names = [
++        "ordinary",
++        " space name ",
++        "quote\"",
++        "back\\slash",
++        "日本語",
++        "é",
++        "😀",
++        "--help",
++    ];
++    for name in names {
++        let server = Server::new(config(name)).await;
++        let response = client_request(&server.path, &Request::Status)
++            .await
++            .unwrap();
++        assert_eq!(response.status.unwrap()[0].name, name);
++        server.engine.permits.add_permits(1);
++        assert!(
++            client_request(&server.path, &Request::Unmount { name: name.into() })
++                .await
++                .unwrap()
++                .ok
++        );
++        assert_eq!(server.engine.completed.load(Ordering::SeqCst), 1);
++        server.finish().await;
++    }
++    eprintln!("NAME_ROUNDTRIP cases=8");
++}
++
++#[tokio::test]
++async fn config_acceptance_implies_transportable_name() {
++    let name = "\"".repeat(32768);
++    let cfg = match parse_config(&name) {
++        Ok(cfg) => cfg,
++        Err(error) => {
++            eprintln!("ACCEPTED_NAME rejected_at_config={error}");
++            return;
++        }
++    };
++    let server = Server::new(cfg).await;
++    let response = client_request(&server.path, &Request::Status)
++        .await
++        .unwrap();
++    assert_eq!(response.status.unwrap()[0].name, name);
++    let request = Request::Unmount { name };
++    let bytes = serde_json::to_vec(&request).unwrap().len() + 1;
++    server.engine.permits.add_permits(1);
++    let outcome = client_request(&server.path, &request).await;
++    eprintln!("ACCEPTED_NAME name_bytes=32768 request_frame_bytes={bytes} outcome={outcome:?} mutations={}", server.engine.entered.load(Ordering::SeqCst));
++    server.finish().await;
++    assert!(
++        outcome.is_ok(),
++        "validated mount is listed by status but cannot be addressed: {outcome:?}"
++    );
++}
+diff --git a/tests/audit/round1-ipc-cli.rs b/tests/audit/round1-ipc-cli.rs
+new file mode 100644
+index 0000000..73fd379
+--- /dev/null
++++ b/tests/audit/round1-ipc-cli.rs
+@@ -0,0 +1,102 @@
++use mountd::{config::Config, ipc::Request};
++use std::os::unix::fs::PermissionsExt;
++use std::time::Duration;
++use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
++use tokio::net::UnixListener;
++
++async fn invoke(args: &[&str]) -> (std::process::Output, Option<Request>) {
++    let home = tempfile::tempdir().unwrap();
++    std::fs::set_permissions(home.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
++    let dir = home.path().join("Library/Application Support/mountd");
++    std::fs::create_dir_all(&dir).unwrap();
++    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
++    let path = dir.join("mountd.sock");
++    assert!(path.as_os_str().len() < 104);
++    let listener = UnixListener::bind(path).unwrap();
++    let server = tokio::spawn(async move {
++        let (mut peer, _) = listener.accept().await.unwrap();
++        let mut line = String::new();
++        BufReader::new(&mut peer)
++            .read_line(&mut line)
++            .await
++            .unwrap();
++        let request = serde_json::from_str::<Request>(&line).unwrap();
++        peer.write_all(b"{\"ok\":true}\n").await.unwrap();
++        request
++    });
++    let output = tokio::time::timeout(
++        Duration::from_secs(3),
++        tokio::process::Command::new(env!("CARGO_BIN_EXE_mountctl"))
++            .env("HOME", home.path())
++            .args(args)
++            .kill_on_drop(true)
++            .output(),
++    )
++    .await
++    .unwrap()
++    .unwrap();
++    let mut server = server;
++    let request = match tokio::time::timeout(Duration::from_millis(100), &mut server).await {
++        Ok(result) => Some(result.unwrap()),
++        Err(_) => {
++            server.abort();
++            let _ = server.await;
++            None
++        }
++    };
++    (output, request)
++}
++
++#[tokio::test]
++async fn option_terminator_preserves_config_names() {
++    for name in [
++        "normal",
++        "--help",
++        "-h",
++        "--",
++        "-archive",
++        "quote\"",
++        "日本語",
++    ] {
++        let (output, request) = invoke(&["unmount", "--", name]).await;
++        assert!(output.status.success());
++        assert_eq!(request, Some(Request::Unmount { name: name.into() }));
++    }
++    eprintln!("CLI_TERMINATOR names=7 exact_requests=7");
++}
++
++#[tokio::test]
++async fn menu_argument_shape_addresses_every_accepted_name() {
++    let mut failures = Vec::new();
++    for name in ["--help", "-h", "--", "-archive"] {
++        let config = format!("[[mount]]\nname={name:?}\nprotocol=\"nfs\"\nexport=\"/synthetic\"\nmountpoint=\"/synthetic\"\n[[mount.endpoint]]\naddress=\"127.0.0.1\"\n");
++        Config::from_toml_str(&config).unwrap();
++        for action in ["mount", "unmount"] {
++            // Exercise the actual menu call's two supported shapes. If that call
++            // is refactored, update this extraction rather than silently guessing.
++            let menu =
++                include_str!("/home/christian/Documents/dev/mountd/menubar/Sources/main.swift");
++            let with_terminator = format!("self?.action([\"{action}\", \"--\", s.name])");
++            let without_terminator = format!("self?.action([\"{action}\", s.name])");
++            let args = if menu.contains(&with_terminator) {
++                vec![action, "--", name]
++            } else {
++                assert!(
++                    menu.contains(&without_terminator),
++                    "menu argv extraction needs updating"
++                );
++                vec![action, name]
++            };
++            let (output, request) = invoke(&args).await;
++            eprintln!("CLI_MENU name={name:?} action={action} exit={:?} request={request:?} stdout={:?} stderr={:?}",
++                output.status.code(), String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
++            if request.is_none() {
++                failures.push(format!("{action} {name}"));
++            }
++        }
++    }
++    assert!(
++        failures.is_empty(),
++        "accepted names never reached IPC: {failures:?}"
++    );
++}
+diff --git a/docs/audit/round1-ipc-breaker.md b/docs/audit/round1-ipc-breaker.md
+new file mode 100644
+index 0000000..18ebb94
+--- /dev/null
++++ b/docs/audit/round1-ipc-breaker.md
+@@ -0,0 +1,179 @@
++# Round 1 IPC breaker
++
++Independent source review and new bounded Linux fixtures against `a66778e`.
++The shared branch is `hardening-audit-rounds`. The checkout initially had exactly
++that HEAD; the parent's documentation-only `b4f33bf` arrived during this run.
++The IPC, config, CLI and menu sources used by these fixtures still match
++`a66778e`. A concurrent edit to `src/engine.rs` appeared during final checks.
++It is outside this breaker's ownership and is not exercised by the fake engine;
++no review or test acceptance of that new edit is claimed here.
++
++Only `tests/audit/round1-ipc*` and this report belong to this breaker. No production
++edits, commits, pushes, branch changes, worktrees or subagents were made.
++
++## Confirmed findings
++
++### R1-IPC-1, medium: menu treats a mount name as a CLI option
++
++Config accepts `--help`, `-h`, `--` and `-archive` as mount names at
++`src/config.rs:552`. The menu passes `["mount", s.name]` and
++`["unmount", s.name]` at `menubar/Sources/main.swift:227` and `:232`.
++Clap parses those names as syntax rather than positional data.
++
++The new `menu_argument_shape_addresses_every_accepted_name` regression invokes
++the actual `src/bin/mountctl.rs` with the menu's argument shape and an owned fake
++Unix server. All eight action/name combinations send zero requests. Both actions
++with `--help` or `-h` exit 0 and print help; the other four combinations exit 2.
++Expected: every accepted name reaches the intended IPC command unchanged.
++Actual: neither mount nor unmount is dispatched. The help cases also appear
++successful to `runCommand`, whose exit-zero branch returns no error. The menu
++ignores stdout in `action` at `main.swift:148`, so these no-ops produce no alert.
++This is an argv parsing defect established on Linux, not a claim to have run AppKit.
++
++Smallest fix: insert the option terminator in both menu call sites,
++`["mount", "--", s.name]` and `["unmount", "--", s.name]`. Preserve ordinary CLI
++help behavior. The separate `option_terminator_preserves_config_names` control
++already dispatches seven names exactly, including all four failing names,
++a quote and Japanese text. The regression extracts either original or corrected
++menu call shape; it fails explicitly if the call is refactored beyond those forms.
++
++### R1-IPC-2, low: config can accept a name that the control transport cannot send
++
++The new `config_acceptance_implies_transportable_name` regression supplies a
++synthetic config whose name contains 32,768 quote characters. Config validation
++succeeds and a real IPC status round trip returns the exact name. An unmount
++request for that same name serializes to 65,564 bytes including its newline,
++exceeding the 65,536-byte request cap. `client_request` returns
++`IPC request too large`; the fake engine records zero mutations.
++
++Expected: config either rejects an unaddressable name or every name it accepts
++can be used by the control protocol. Actual: status advertises a valid configured
++mount that mount/unmount/named-explain requests cannot address. The same escaped
++name fits comfortably in the 4 MiB response budget, so successful status does not
++establish control usability. This is a low-severity validation defect requiring
++an unusually large name, not a remote attack or measured memory-exhaustion issue.
++
++Root cause: name validation at `src/config.rs:552` only checks emptiness and
++control characters. It has no bound corresponding to the client check at
++`src/ipc.rs:308` or server frame limit at `:139`. Counting unescaped characters
++alone also misses JSON expansion.
++
++Smallest fix: reject names at config load when their JSON-encoded bytes, the
++largest named-command envelope and the newline would exceed the shared request
++limit. Keep that budget consistent across mount, unmount and explain. The
++regression permits early config rejection, so it can pass after this validation
++fix without allowing oversized IPC frames.
++
++## New fixture boundaries
++
++`round1-ipc-breaker.py` reuses the fake boundaries from
++`tests/portable-ipc-config.py`. A distinct package,
++`mountd-round1-ipc-breaker-fixture`, prevents the documented cache collision.
++It copies `ipc.rs` only to attach the new unit module and compiles the actual CLI.
++Config, IPC framing/admission, client, serialization and CLI parsing stay real.
++Fake mutation methods only increment counters, await a semaphore, and increment
++completion counters. The status fixture can pad one field to exercise response
++limits. Mounts, native mount enumeration, credentials and probes remain forbidden.
++
++The new mutation tests establish transport ownership around a deliberately held
++engine future. They do not establish native mount completion, launchd ordering,
++engine lease behavior or direct-child reap. Those are separate existing contracts.
++The `/proc/self/fd` measurements are Linux-only. Test sockets and configs are
++owned temporary files; no TCP listener, public service, Docker, installed app,
++LaunchAgent or production credential is involved.
++
++## Commands and retained evidence
++
++All repository commands used `/home/christian/Documents/dev/mountd` as their
++explicit working directory. Both suite invocations used this exact shell command:
++
++```sh
++env TMPDIR=/home/christian/.local/share/agent-tmp \
++  CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=1 \
++  flock -w 600 /home/christian/.local/state/agent-swarms/heavy.lock \
++  timeout 500s python3 tests/audit/round1-ipc-breaker.py \
++  > tests/audit/round1-ipc-runner.log 2>&1
++```
++
++The runner sets `CARGO_TARGET_DIR` to
++`/home/christian/Documents/dev/mountd/target/portable-daemon`. It invokes these
++serially, each with a 240-second subprocess deadline, using an owned temporary
++manifest whose exact path is recorded in each log:
++
++```sh
++cargo test --offline --locked --manifest-path "$fixture/Cargo.toml" --lib round1_ipc -- --nocapture
++cargo test --offline --locked --manifest-path "$fixture/Cargo.toml" --test round1_ipc_cli -- --nocapture
++```
++
++The lock waits ran in yielded command sessions. No build ran outside that lock.
++The runner deliberately returns nonzero for failing regression assertions.
++
++The initial unit run had a fixture error. Rust temporary directories inherited
++permissions that failed the production private-directory check. Eight tests
++stopped at socket setup; the direct socket-pair writer test passed. The initial
++CLI run independently reproduced R1-IPC-1. The fixtures now explicitly set their
++temporary directories to `0700`. Initial output is preserved in
++`tests/audit/round1-ipc-initial-{unit,cli,runner}.log`; it is not product-failure
++evidence except for the independently completed CLI reproduction.
++
++Final result: 11 new tests, 9 passed and 2 failed on the confirmed regressions.
++No existing tests were selected. The unit invocation reports 8 passed, 1 failed
++and 105 unrelated tests filtered out in 21.74 seconds. The CLI invocation reports
++1 passed and 1 failed in 0.94 seconds. Both Cargo commands exit 101; the runner
++exits 1. Compilation succeeded for both.
++
++| Hypothesis | New measured result | Disposition |
++| --- | --- | --- |
++| Completed connections retain admission slots or fds | 1,024 requests in 268 ms; fd count 12 before and 12 after | Rejected for this bounded churn |
++| Saturation keeps growing or never recovers | 64 gated requests admitted, 32 excess requests rejected, 64 completions; fds 12 to 140 to 12; subsequent status succeeds | Rejected |
++| Disconnect, half-close or nonreading peer cancels accepted mutation or releases singleton early | Mount/unmount/reload crossed with three peer modes; 9 completions, 0 premature unlocks; shutdown waits for each gate | Rejected at the IPC/fake-engine boundary |
++| EOF permits partial mutation frames | All 32 proper prefixes of the request rejected; 0 mutations | Rejected |
++| Idle saturation pins shutdown forever | 64 accepted idle peers; lock held during wait; shutdown takes 10,000 ms; fds 12 before and 10 after server cleanup | Rejected |
++| A stalled response writer never expires | 1 MiB payload, requested 4 KiB send buffer, no reader; write deadline returns after 10,123 ms | Rejected |
++| Request/response framing disagrees about newline or cap | 17 frame-boundary cases pass; 98,304-byte and 4,194,303-byte JSON responses succeed; 4,194,304 and 4,194,305 return explicit oversize error | Rejected for framing; config acceptance defect remains separate |
++| Escaped/Unicode names change in JSON transport | 8 names preserved through status and named request; each mutation counter reaches one | Rejected |
++| Menu names remain data at the CLI boundary | 8 calls send no request, including 4 exit-zero help no-ops; 7 calls with `--` dispatch correctly | Confirmed R1-IPC-1 |
++| Every accepted name fits a named IPC request | 32,768-byte name accepted and listed; 65,564-byte request rejected before engine entry | Confirmed R1-IPC-2 |
++
++Retained final logs are `tests/audit/round1-ipc-unit.log`,
++`tests/audit/round1-ipc-cli.log` and `tests/audit/round1-ipc-runner.log`.
++The 11 test count is the unique new test count. Matrix rows contain subcases,
++which must not be added to it. No native result is inferred from these numbers.
++
++## Parent integration artifacts
++
++All paths below are relative to `/home/christian/Documents/dev/mountd`:
++
++- `tests/audit/round1-ipc-breaker.py`, generator and bounded runner.
++- `tests/audit/round1-ipc-unit.rs`, nine new IPC/config tests.
++- `tests/audit/round1-ipc-cli.rs`, two new actual-CLI tests.
++- `docs/audit/round1-ipc-breaker.md`, this report.
++- `tests/audit/round1-ipc.patch`, add-file patch for those four source/report files.
++- `tests/audit/round1-ipc-source-sha256.txt`, checked source and fixture hashes.
++- `tests/audit/round1-ipc-checks.log`, formatting, Python parse, patch whitespace,
++  source identity and owned-process cleanup checks.
++
++The patch adds tests/report only. The logs and hash manifest remain available
++alongside it in this shared checkout. Production fixes remain unimplemented.
++The direct writer test checks `serve_conn`'s timeout; the idle and mutation tests
++separately exercise `serve_bound_until` shutdown. This suite does not claim an
++integrated saturated large-response shutdown test or general heap/RSS bound.
++
++## Source review and remaining limits
++
++Read coverage, review-disposition, verification and mac-verification, all four
++original review reports, the IPC/config ledger, relevant daemon/engine lifecycle
++paths and both portable IPC/daemon generators. No additional source claim is made
++about RF-1. The latest signal guards and the accepted direct-child, stuck
++kernel/libc, SMB argv and post-preparation pathname limits remain accepted.
++
++Applied ponytail, unslop and realistic-commits under the explicit no-commit
++instruction. Initially the branch had no remote-tracking ref, and an authenticated
++read-only GitHub event lookup returned no matching branch PushEvent. Rechecking
++after the parent's publication found the reliable `update by push` reflog entry
++for `b4f33bf` at `2026-11-12 08:50:58 +1000`. No commit timing action is applicable.
++
++Mac runtime acceptance remains pending the user. This round does not run Swift,
++AppKit, Darwin peer credentials, Keychain, real shares, LaunchAgents or a full
++repository test/build suite. The parent owns integration, full checks and fresh
++independent review. Production fixes are recommendations only.

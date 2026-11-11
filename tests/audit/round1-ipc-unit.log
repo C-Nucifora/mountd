@@ -1,0 +1,43 @@
+COMMAND ["cargo", "test", "--offline", "--locked", "--manifest-path", "/home/christian/.local/share/agent-tmp/round1-ipc-mpajk_q1/Cargo.toml", "--lib", "round1_ipc", "--", "--nocapture"]
+   Compiling mountd-round1-ipc-breaker-fixture v0.4.0 (/home/christian/.local/share/agent-tmp/round1-ipc-mpajk_q1)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.90s
+     Running unittests src/lib.rs (target/portable-daemon/debug/deps/mountd-40e6da3b64a7cbdc)
+
+running 9 tests
+test ipc::round1_ipc::accepted_mutations_survive_disconnect_half_close_and_shutdown ... MUTATION_PEERS cases=9 completed=9 premature_unlocks=0
+ok
+test ipc::round1_ipc::completed_connections_release_slots_and_fds ... CHURN requests=1024 fd_before=12 fd_after=12 elapsed_ms=268
+ok
+test ipc::round1_ipc::config_acceptance_implies_transportable_name ... ACCEPTED_NAME name_bytes=32768 request_frame_bytes=65564 outcome=Err(IPC request too large) mutations=0
+
+thread 'ipc::round1_ipc::config_acceptance_implies_transportable_name' (1147815) panicked at /home/christian/Documents/dev/mountd/tests/audit/round1-ipc-unit.rs:389:5:
+validated mount is listed by status but cannot be addressed: Err(IPC request too large)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+test ipc::round1_ipc::idle_saturated_shutdown_is_bounded_and_holds_lock ... IDLE_SHUTDOWN peers=64 elapsed_ms=10000 fd_before=12 fd_after=10
+ok
+test ipc::round1_ipc::incomplete_mutation_frames_never_mutate ... PREFIXES rejected=32 mutations=0
+ok
+test ipc::round1_ipc::request_response_caps_include_newline_consistently ... RESPONSE serialized_bytes=98304 ok=true
+RESPONSE serialized_bytes=4194303 ok=true
+RESPONSE serialized_bytes=4194304 ok=false
+RESPONSE serialized_bytes=4194305 ok=false
+FRAME_BOUNDARIES cases=17
+ok
+test ipc::round1_ipc::saturation_rejects_excess_then_recovers ... SATURATION admitted=64 rejected=32 completed=64 fd_before=12 fd_peak=140 fd_after=12
+ok
+test ipc::round1_ipc::stalled_response_writer_times_out ... STALLED_WRITER payload_bytes=1048576 sendbuf_requested=4096 elapsed_ms=10123
+ok
+test ipc::round1_ipc::valid_unicode_and_escaped_names_round_trip ... NAME_ROUNDTRIP cases=8
+ok
+
+failures:
+
+failures:
+    ipc::round1_ipc::config_acceptance_implies_transportable_name
+
+test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 105 filtered out; finished in 21.74s
+
+error: test failed, to rerun pass `--lib`
+
+CARGO_EXIT=101

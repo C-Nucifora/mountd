@@ -1,0 +1,2 @@
+unit: cargo exit 0; /home/christian/Documents/dev/mountd/tests/audit/round1-ipc-unit-fixed.log
+cli: cargo exit 0; /home/christian/Documents/dev/mountd/tests/audit/round1-ipc-cli-fixed.log
