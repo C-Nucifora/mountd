@@ -57,6 +57,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
   /// does not rebuild the items under the user's cursor.
   var menuIsOpen = false
   var pendingRebuild = false
+  var refreshing = false
+  var revealing = false
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -98,71 +100,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     _ args: [String], timeout: TimeInterval = 20,
     completion: @escaping (Data?, String?) -> Void
   ) {
-    guard let ctl = mountctlPath() else {
-      completion(nil, "mountctl not found (install with `cargo install --path .`)")
-      return
-    }
     DispatchQueue.global(qos: .userInitiated).async {
-      let proc = Process()
-      proc.executableURL = URL(fileURLWithPath: ctl)
-      proc.arguments = args
-      let outPipe = Pipe()
-      let errPipe = Pipe()
-      proc.standardOutput = outPipe
-      proc.standardError = errPipe
-
-      // Drain both pipes concurrently: reading one to EOF before the other can
-      // deadlock if the child fills the pipe buffer on the one we ignore.
-      var outData = Data()
-      var errData = Data()
-      let drain = DispatchGroup()
-      for (pipe, sink) in [(outPipe, { outData = $0 }), (errPipe, { errData = $0 })] {
-        drain.enter()
-        DispatchQueue.global(qos: .userInitiated).async {
-          sink(pipe.fileHandleForReading.readDataToEndOfFile())
-          drain.leave()
+      guard let ctl = mountctlPath() else {
+        DispatchQueue.main.async {
+          completion(nil, "mountctl not found (install with `cargo install --path .`)")
         }
-      }
-
-      do {
-        try proc.run()
-      } catch {
-        DispatchQueue.main.async { completion(nil, error.localizedDescription) }
         return
       }
-
-      let deadline = DispatchTime.now() + timeout
-      let timedOut = DispatchQueue.global(qos: .userInitiated)
-      var killed = false
-      let watchdog = DispatchWorkItem {
-        if proc.isRunning {
-          killed = true
-          proc.terminate()
-        }
-      }
-      timedOut.asyncAfter(deadline: deadline, execute: watchdog)
-
-      proc.waitUntilExit()
-      watchdog.cancel()
-      _ = drain.wait(timeout: .now() + 2)
-
-      DispatchQueue.main.async {
-        if killed {
-          completion(nil, "mountctl timed out after \(Int(timeout))s")
-        } else if proc.terminationStatus == 0 {
-          completion(outData, nil)
-        } else {
-          let msg = String(data: errData, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-          completion(nil, msg?.isEmpty == false ? msg : "mountctl exited \(proc.terminationStatus)")
-        }
-      }
+      let result = runCommand(ctl, args: args, timeout: timeout)
+      DispatchQueue.main.async { completion(result.0, result.1) }
     }
   }
 
   func refresh() {
+    guard !refreshing else { return }
+    refreshing = true
     runMountctl(["status", "--json"]) { [weak self] data, error in
       guard let self else { return }
+      self.refreshing = false
       let newStatuses: [MountStatus]
       let newError: String?
       if let data, let parsed = try? JSONDecoder().decode([MountStatus].self, from: data) {
@@ -212,6 +167,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let image = NSImage(systemSymbolName: symbol, accessibilityDescription: description)
     image?.isTemplate = true
     statusItem.button?.image = image
+    statusItem.button?.setAccessibilityLabel(description)
+    statusItem.button?.toolTip = description
   }
 
   func updateIcon() {
@@ -257,6 +214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
       let item = NSMenuItem(
         title: "\(glyph(for: s)) \(s.name) — \(s.state)",
         action: nil, keyEquivalent: "")
+      item.setAccessibilityLabel("\(s.name): \(s.state)")
       let sub = NSMenu()
       let mounted = s.kind == "mounted" || s.kind == "suspect"
       if mounted {
@@ -309,10 +267,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
   /// resolves it — on a dead SMB mount that blocks for as long as the SMB
   /// client takes to give up, freezing the status item and then Finder.
   func reveal(_ status: MountStatus) {
+    guard !revealing else { return }
+    revealing = true
     let path = expandTilde(status.mountpoint)
     DispatchQueue.global(qos: .userInitiated).async {
       NSWorkspace.shared.open(URL(fileURLWithPath: path, isDirectory: true))
-      DispatchQueue.main.async { [weak self] in self?.refresh() }
+      DispatchQueue.main.async { [weak self] in
+        self?.revealing = false
+        self?.refresh()
+      }
     }
   }
 
