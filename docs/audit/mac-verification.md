@@ -24,6 +24,21 @@ it. It does not start the daemon, register LaunchAgents, read credentials or
 mount shares. Return the entire artifact directory. A green script is build and
 synthetic acceptance only.
 
+The round-1 checkpoint also needs native validation of the new installer locks:
+
+```sh
+/bin/zsh -fc 'zmodload zsh/system && zsystem supports flock'
+python3 tests/audit/round1-installer-overlap.py
+```
+
+Require the module check to exit 0 on macOS 13 and current macOS. The overlap
+fixture uses the real zsh lock module with fake compiler, signing and launchctl
+tools in an isolated HOME. Verify contention fails before effects, exclusion
+continues through rollback, retries work, and lock inodes remain stable. The
+Linux IPC audit's `/proc/self/fd` measurements are not native Mac evidence.
+During the menu recovery case below, also use mount names `--help`, `-h` and
+`--`; capture fake mountctl argv and require `--` before each name in both actions.
+
 ## Runtime checks requiring the disposable Mac
 
 Record each case as pass, fail or not run. For failures, include the isolated

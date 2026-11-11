@@ -6,8 +6,10 @@ This is the first audit batch's verification record. Follow
 Verified on Linux x86_64, 2026-11-12 Australia/Brisbane, against the hardening
 sources based on `b39ea7ed42b418faa870f74f8edf282f60797fde`.
 [Source hashes](results/source-sha256.txt) identify the checked source and
-fixtures independently of later documentation commits. Run
-`sha256sum -c docs/audit/results/source-sha256.txt` from the repository root.
+fixtures at `a66778e`, independently of later documentation commits. Run
+`sha256sum -c docs/audit/results/source-sha256.txt` only in that historical
+checkout. For the round-1 checkpoint, use the separate manifest and results in
+[extended audit rounds](swarm-rounds.md); later source changes are intentional.
 
 All builds ran serially with:
 
