@@ -57,7 +57,7 @@ listings, screenshots or logs.
 | Unix credentials and ownership | Run the singleton and socket unit tests natively. In two disposable users, attempt access to the first user's socket. Filesystem permissions or peer UID checks must reject it. The rejected process must not remove the socket or lock inode. | Test logs, user IDs and before/after mode and inode records |
 | Daemon signals and ownership | Run `python3 tests/portable-daemon.py` on the Mac. Its explicit fake Ops, power source and route executable exercise the real daemon entry point. Duplicate start must fail before effects; SIGTERM must close accepts, drain the accepted request, reap synthetic children, and retain the singleton until done. | Fixture log and final child/process observations |
 | Framework bindings | Native Rust test/build must link IOKit and CoreFoundation without replacing their implementations. | `rust-tests.log`, `lint.log` |
-| Power delivery | Use a separately prepared fake-Ops daemon in the disposable account with the real power watcher. Trigger idle sleep, forced sleep, cancelled sleep and wake. Repeat with fast, failed and over-budget fake unmounts. Each permission-bearing notification must be acknowledged once within the fixed 25-second callback ceiling; engine cleanup must honor its configured 0..20-second budget; no fake mount starts between sleep and wake. Wake resets retry evidence and honors settling. | Notification ID/time, acknowledgement time and synthetic effect trace |
+| Power delivery | Use a separately prepared fake-Ops daemon in the disposable account with the real power watcher. Trigger idle sleep, forced sleep, cancelled sleep and wake. Repeat with fast, failed and over-budget fake unmounts. Each permission-bearing notification must be acknowledged once using the fixed 25-second wait budget; measure actual callback latency separately; engine cleanup must honor its configured 0..20-second budget; no fake mount starts between sleep and wake. Wake resets retry evidence and honors settling. | Notification ID/time, acknowledgement time and synthetic effect trace |
 | Menu recovery | Put a synthetic `mountctl` in the disposable user's `.cargo/bin`. Return valid status, malformed JSON, missing fields, stderr failure, more than 1 MiB output, a TERM-resistant hang, and then valid status. Launch only the newly built app. Menus must remain usable, refresh calls must not overlap, and recovery must clear the error state. | Synthetic response files, screen recording and owned child counts |
 | Inherited pipes | Extend the Swift command fixture with a helper that exits after leaving a bounded descendant holding stdout. The command deadline must return without blocked read workers accumulating. Observe Foundation child reaping. | Command log and owned-process observations |
 | Accessibility | With VoiceOver, navigate each aggregate status and share submenu using the keyboard while refresh completes. The status item must announce state; each share must announce its name and state. Menu tracking must preserve focus and actions. | VoiceOver transcript or recording, Accessibility Inspector capture |
@@ -103,3 +103,18 @@ Passwords remain visible in the SMB helper's argv until it exits. A kernel-stuck
 helper can outlive its kill deadline. Shutdown intentionally retains ownership
 while unreapable work remains. These limits must be recorded, not marked fixed
 by a successful mock run.
+
+## Final source-review additions
+
+The round-4 native boundary report requires native SDK/ABI verification of
+registration failure, callback context lifetime, token types and run-loop ordering.
+Correlate repeated permission messages with actual allow-call return statuses.
+The 25-second wait budget is not a hard wall-clock guarantee: polling steps,
+scheduling and the native call can add delay. Record observed latency.
+
+Capture getfsstat count/fill and field bytes while the table changes, including
+invalid or truncated encodings where reproducible on a disposable Mac. Pure
+byte conversion tests cannot establish native source identity or dead-mount timing.
+
+The provider-refused round-2 process/drain assignment remains stopped. Historical
+checklist entries do not authorize retrying or repackaging that assignment.

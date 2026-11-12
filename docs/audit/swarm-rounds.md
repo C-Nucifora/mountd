@@ -448,3 +448,18 @@ The refused process/drain work remains stopped; neither owner may take it over.
 Each must identify nonredundant new hypotheses and preserve exact executed versus
 source-only versus unavailable native results. No finding or fix is required to
 fill a round; confirmed defects need a separate fixer and fresh challenge.
+
+## Final publication disposition, 2026-11-13
+
+The user requested publication of existing work and then a stop. No further
+audit round or worker was started. Both round-4 workers had failed with provider
+authentication errors; their task records were stopped and their on-disk output
+collected. No credential or provider configuration was changed.
+
+The parent reviewed both reports, source extraction and Rust test expectations.
+Four native-boundary pure tests passed in the recovered worker log. Identity
+execution failed before tests because offline metadata needed getrandom 0.2.17.
+Final bounded verification results and publication details are in
+[final handoff](final-handoff.md). This does not count as a clean completed round.
+No new production code was added. The PR remains draft for native acceptance,
+unexecuted identity tests and the existing refused coverage gap.

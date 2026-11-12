@@ -1,0 +1,21 @@
+python AST: pass
+command ['rustfmt', '--edition', '2021', '--check', 'tests/audit/round4-identity.rs']
+exit 0
+command ['sha256sum', '-c', 'tests/audit/round4-identity-source-sha256.txt']
+src/config.rs: OK
+src/mtab.rs: OK
+src/mountcmd.rs: OK
+src/engine.rs: OK
+src/wol.rs: OK
+Cargo.toml: OK
+Cargo.lock: OK
+tests/audit/round4-identity.py: OK
+tests/audit/round4-identity.rs: OK
+exit 0
+command ['git', 'diff', '--exit-code', '6c51d55', '--', 'src/config.rs', 'src/mtab.rs', 'src/mountcmd.rs', 'src/engine.rs', 'src/wol.rs', 'Cargo.toml', 'Cargo.lock']
+exit 0
+command ['git', 'diff', '--check', '--', 'docs/audit/round4-identity-review.md', 'tests/audit/round4-identity.py', 'tests/audit/round4-identity.rs']
+exit 0
+untracked whitespace: pass docs/audit/round4-identity-review.md
+untracked whitespace: pass tests/audit/round4-identity.py
+untracked whitespace: pass tests/audit/round4-identity.rs
