@@ -268,8 +268,8 @@ were left untouched.
 
 Partial `tests/audit/round2-process*` artifacts are preserved locally. No
 completed execution or review acceptance has been established, and these files
-are not being published. No round-2 process result is claimed. The existing credential/path delegation continues within its original
-separate scope; it will not take over the refused coverage. This is an explicit
+are not being published. No round-2 process result is claimed. The existing credential/path delegation
+continues within its original separate scope; it will not take over the refused coverage. This is an explicit
 coverage blocker, not evidence of a product defect or a clean round.
 
 ### Parent supplemental IPC control
@@ -281,5 +281,12 @@ mutated config validator accepted the name. The new test therefore detects the
 known length defect. Exact source hashes, command and output are retained in
 [`round1-ipc-controls-config.log`](../../tests/audit/round1-ipc-controls-config.log).
 Only the disposable copy changed; production files remain unchanged. The menu
-control is still queued under a separate bounded lock acquisition. Earlier
-reviewer lock-expiry logs remain historical evidence, not overwritten results.
+control subsequently ran under its separate acquisition and exited 101 at the
+intended CLI assertion. With only the menu terminators removed, the literal
+name `--` was parsed as an option terminator, leaving NAME missing and producing
+CLI exit 2 instead of a successful dispatch. The log is
+[`round1-ipc-controls-menu.log`](../../tests/audit/round1-ipc-controls-menu.log).
+Both parent controls therefore failed as required, and the parent runner
+completed with exit 0. Earlier reviewer lock-expiry logs remain historical
+evidence, not overwritten results. No production edit or additional full-suite
+rerun was needed for these disposable-copy controls.
