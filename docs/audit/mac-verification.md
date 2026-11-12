@@ -74,6 +74,10 @@ servers are explicitly authorized. They are not part of the script above.
   after reviewing their temporary Keychain creation and deletion. Cover ASCII,
   Unicode, literal hex, trailing newline, missing item, denied ACL and unanswered
   prompt. Verify one total caller deadline across both security invocations.
+  For R2-CRED-1, use only these synthetic credentials to verify that native
+  metadata supplies one password record and distinct literal quote boundaries.
+  Confirm literal hex and encoded Unicode/newline credentials still work. The
+  portable malformed/duplicate-record tests do not establish native grammar.
 - Use two approved endpoints for the same synthetic share. Verify initial
   selection, disappearing server, restoration, migration confirmation and busy
   polite-unmount failure. Record endpoint, service port and mount source before

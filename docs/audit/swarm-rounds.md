@@ -290,3 +290,108 @@ Both parent controls therefore failed as required, and the parent runner
 completed with exit 0. Earlier reviewer lock-expiry logs remain historical
 evidence, not overwritten results. No production edit or additional full-suite
 rerun was needed for these disposable-copy controls.
+
+### Round-2 credential finding
+
+The independent [credential/path breaker](round2-credential-path-breaker.md)
+completed one new seven-test suite: five pass and two fail at the intended
+credential-parsing assertions. R2-CRED-1 is medium severity. A lone double quote
+is accepted as a complete literal metadata value, and `find_map` silently picks
+the first of contradictory password records. Both violate the existing
+malformed/ambiguous metadata fail-closed contract. This is synthetic defensive
+parser evidence, not evidence that native security normally emits those bytes.
+
+Parent reviewed the test oracle, parser source, failure output, source hashes
+and cleanup evidence and accepted the finding. A separate Sol/high/priority
+fixer owns only `src/cred.rs` and a fix report. The correction must require one
+password record and distinct opening/closing literal quotes, preserving valid
+literal-hex/encoded behavior, static non-secret diagnostics, deadlines and
+operation ownership. Fresh focused/full affected checks and an independent
+challenge are required before publication. No production change has yet been
+accepted. The refused process/drain task remains stopped and is not assigned to
+this fixer. Round 2 has a confirmed defect and cannot count as clean.
+
+### R2-CRED-1 implementation handoff
+
+The separate fixer changed only `src/cred.rs` and owned evidence. Parent source
+review accepts the small correction: iterate password records, reject a second
+record, and strip an opening quote before requiring the closing quote. Two
+source regressions cover the confirmed failures and valid neighboring formats.
+Hex decoding, caller deadlines, ownership and platform access are unchanged.
+Current credential source SHA-256 is
+`460fdeedc8bd07c5cc452f726e1bd6bab23de718dac98d234f45b2e459fe049d`.
+
+The fixer's 900-second lock acquisition expired before tests ran. Rustfmt and
+whitespace checks passed, but no fixed-source runtime acceptance followed.
+Parent queued the retained seven-test breaker suite, existing portable-process
+suite and Apple-target Clippy with separate acquisitions and a longer bounded
+3,600-second acquisition wait. Each execution still has a 235-second deadline
+and five-second termination grace, and releases the lock before the next suite.
+This avoids repeated short acquisitions while preserving cross-project
+serialization. These commands do not run or adapt the refused round-2 process
+artifacts. Original failing evidence and unrun-check status logs remain intact.
+A fresh independent parser challenge will run alongside the queued parent work
+with separate fixture ownership. The fix remains uncommitted pending checks.
+
+### R2-CRED-1 passing checks and independent disposition
+
+The parent fixed-source breaker rerun passed all seven tests. The existing
+portable-process suite passed 105 tests, with five native Keychain tests ignored,
+and Clippy passed. The two new production parser tests both ran and passed.
+[Independent parser review](round2-credential-review.md) found no substantive
+unresolved parser issue: six tests cover 427 parser cases and 24 comparisons
+against the restored old parser, all of which expose the old faulty behavior.
+No production edit followed review. Signed local commit `2224097`,
+`reject ambiguous credential metadata`, contains the correction and source tests.
+Apple-target Clippy subsequently passed with warnings denied. All parent
+checks completed with exit 0 and unchanged credential source bytes.
+
+Exact new results are in `tests/audit/round2-credential-parent-focused.log`,
+`round2-credential-parent-portable.log` and `round2-credential-review-suite.log`.
+The [fixed-source manifest](results/round2-credential-source-sha256.txt) is separate
+from the breaker's historical pre-fix manifest. Two trailing-space lines in the
+original failing suite log were normalized for Git without changing output or
+outcome; its original raw bytes remain at
+`/home/christian/.local/share/agent-tmp/mountd-round2-raw-evidence/round2-credential-path-suite.log`.
+The owner reports' original log hashes refer to that raw execution snapshot.
+
+Round 2 has a corrected, independently reviewed finding plus a provider-refused
+coverage gap. It cannot count as clean or fully complete. The refused scope
+remains stopped. Subsequent independent rounds must not take it over.
+
+## Round 3: decision sequences and status recovery
+
+Preparation starts from local reviewed fix `2224097` while the parent's remaining
+Apple check waits. No production edits are delegated. Two bounded owners will
+challenge distinct permitted paths, with prior findings and unresolved objections
+included. Their results cannot close the refused process/drain scope.
+
+- Decision owner: new condition-grace, endpoint-migration, busy-unmount and
+  config-reload sequences using only existing FakeOps and pure policy decisions.
+  No child-process, resolver, cancellation/drain or refused test work.
+- Status/UI owner: state/status/CLI data contracts, daemon restart/error recovery
+  presentation and menu accessibility source. Use pure state/serialization
+  fixtures where possible; AppKit/Swift runtime, native focus and VoiceOver
+  remain Mac acceptance. Do not replace native frameworks for Linux tests.
+
+Both owners first identify gaps in prior tests and choose small new matrices.
+A confirmed defect needs reproduction and separate fix ownership; a clean result
+needs exact fresh evidence. No claim of two clean rounds follows from these plans.
+
+### R2-CRED-1 publication evidence
+
+R2-CRED-1 is fixed and accepted within portable coverage. The batch contains
+signed code commit `2224097` and the evidence commit titled `record credential
+parser verification`. Parent results are seven focused tests, 105 existing
+portable tests with five native tests ignored, portable Clippy and Apple-target
+Clippy, all passing. Independent review adds six pure-parser tests, 427 matrix
+cases and 24 successful old-parser oracle comparisons. These counts overlap
+and are not a unique-test total. Exact commands and hashes are in the retained
+logs and fixed-source manifest.
+
+The initial breaker failures, fixer's lock-expired attempt and review fixture's
+pre-compilation mismatch remain labelled historical evidence. They are not
+current production failures. No source change followed the independent review.
+Native metadata compatibility and ignored Keychain tests remain open. The
+provider-refused process/drain coverage remains stopped and is not included in
+this acceptance. Round 3's two independent owners remain active.
