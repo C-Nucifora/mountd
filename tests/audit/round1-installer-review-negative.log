@@ -1,0 +1,56 @@
+PLATFORM linux zsh 5.9 (x86_64-ubuntu-linux-gnu)
+SHA256 26ea441735c84c4a12a506a809890d21b08bd80ddd7d2684ba37ea8bd1fd3a41 /home/christian/Documents/dev/mountd/menubar/build.sh
+SHA256 32575de796e3dff7c8ddaa5fe0326c863738dea8f471a67154a7d8d96c2ea37c /home/christian/Documents/dev/mountd/menubar/test-build.py
+SHA256 9babda05592d4a1339819587234dc03c45857d3143bbff75105667aa34d9cc85 /home/christian/Documents/dev/mountd/tests/audit/round1-installer-review.py
+CASE inspect-error
+RUN ['zsh', 'build.sh', 'install'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-26ouzedm/menubar HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-26ouzedm/synthetic & <user> tag= old mode=
+RESULT 1315391 0 stdout= 'built: build/Mountd Menu Bar.app\ninstalled: /home/christian/.local/share/agent-tmp/mountd-install-fixture-26ouzedm/synthetic & <user>/Applications/Mountd Menu Bar.app (login item via org.mountd.menubar)\n' stderr= ''
+RUN ['zsh', 'build.sh', 'install'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-26ouzedm/menubar HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-26ouzedm/synthetic & <user> tag= update mode= inspect-error
+RUN ['zsh', 'build.sh', 'install'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-26ouzedm/checkout-b HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-26ouzedm/synthetic & <user> tag= contender mode=
+RESULT 1315458 1 stdout= '' stderr= 'acquire_lock:zsystem:2: failed to lock file /home/christian/.local/share/agent-tmp/mountd-install-fixture-26ouzedm/synthetic & <user>/Library/Application Support/mountd/menubar-install.lock: resource temporarily unavailable\nanother menu bar build/install is active, or lock unavailable: /home/christian/.local/share/agent-tmp/mountd-install-fixture-26ouzedm/synthetic & <user>/Library/Application Support/mountd/menubar-install.lock\n'
+RUN ['zsh', 'build.sh'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-26ouzedm/menubar HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-26ouzedm/synthetic & <user> tag= build-contender mode=
+RESULT 1315463 1 stdout= '' stderr= 'acquire_lock:zsystem:2: failed to lock file build/.menubar-build.lock: resource temporarily unavailable\nanother menu bar build/install is active, or lock unavailable: build/.menubar-build.lock\n'
+RESULT 1315425 1 stdout= 'built: build/Mountd Menu Bar.app\n' stderr= 'synthetic inspection denied\nservice state uncertain; recovery files retained at /home/christian/.local/share/agent-tmp/mountd-install-fixture-26ouzedm/synthetic & <user>/Applications/.mountd-install.1oXBiJ\n'
+RUN ['zsh', 'build.sh', 'install'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-26ouzedm/checkout-b HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-26ouzedm/synthetic & <user> tag= settled-retry mode=
+RESULT 1315468 0 stdout= 'built: build/Mountd Menu Bar.app\ninstalled: /home/christian/.local/share/agent-tmp/mountd-install-fixture-26ouzedm/synthetic & <user>/Applications/Mountd Menu Bar.app (login item via org.mountd.menubar)\n' stderr= ''
+PASS inspect-error
+CASE inspect-signal
+RUN ['zsh', 'build.sh', 'install'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-w3mggqlh/menubar HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-w3mggqlh/synthetic & <user> tag= old mode=
+RESULT 1315523 0 stdout= 'built: build/Mountd Menu Bar.app\ninstalled: /home/christian/.local/share/agent-tmp/mountd-install-fixture-w3mggqlh/synthetic & <user>/Applications/Mountd Menu Bar.app (login item via org.mountd.menubar)\n' stderr= ''
+RUN ['zsh', 'build.sh', 'install'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-w3mggqlh/menubar HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-w3mggqlh/synthetic & <user> tag= update mode= inspect-signal
+RUN ['zsh', 'build.sh', 'install'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-w3mggqlh/checkout-b HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-w3mggqlh/synthetic & <user> tag= contender mode=
+RESULT 1315659 1 stdout= '' stderr= 'acquire_lock:zsystem:2: failed to lock file /home/christian/.local/share/agent-tmp/mountd-install-fixture-w3mggqlh/synthetic & <user>/Library/Application Support/mountd/menubar-install.lock: resource temporarily unavailable\nanother menu bar build/install is active, or lock unavailable: /home/christian/.local/share/agent-tmp/mountd-install-fixture-w3mggqlh/synthetic & <user>/Library/Application Support/mountd/menubar-install.lock\n'
+RUN ['zsh', 'build.sh'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-w3mggqlh/menubar HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-w3mggqlh/synthetic & <user> tag= build-contender mode=
+RESULT 1315664 1 stdout= '' stderr= 'acquire_lock:zsystem:2: failed to lock file build/.menubar-build.lock: resource temporarily unavailable\nanother menu bar build/install is active, or lock unavailable: build/.menubar-build.lock\n'
+RESULT 1315593 1 stdout= 'built: build/Mountd Menu Bar.app\n' stderr= '\nservice state uncertain; recovery files retained at /home/christian/.local/share/agent-tmp/mountd-install-fixture-w3mggqlh/synthetic & <user>/Applications/.mountd-install.pQpWyh\n'
+RUN ['zsh', 'build.sh', 'install'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-w3mggqlh/checkout-b HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-w3mggqlh/synthetic & <user> tag= settled-retry mode=
+RESULT 1315669 0 stdout= 'built: build/Mountd Menu Bar.app\ninstalled: /home/christian/.local/share/agent-tmp/mountd-install-fixture-w3mggqlh/synthetic & <user>/Applications/Mountd Menu Bar.app (login item via org.mountd.menubar)\n' stderr= ''
+PASS inspect-signal
+CASE restart-signal
+RUN ['zsh', 'build.sh', 'install'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-9fm52d39/menubar HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-9fm52d39/synthetic & <user> tag= old mode=
+RESULT 1315716 0 stdout= 'built: build/Mountd Menu Bar.app\ninstalled: /home/christian/.local/share/agent-tmp/mountd-install-fixture-9fm52d39/synthetic & <user>/Applications/Mountd Menu Bar.app (login item via org.mountd.menubar)\n' stderr= ''
+RUN ['zsh', 'build.sh', 'install'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-9fm52d39/menubar HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-9fm52d39/synthetic & <user> tag= update mode= restart-signal
+RUN ['zsh', 'build.sh', 'install'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-9fm52d39/checkout-b HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-9fm52d39/synthetic & <user> tag= contender mode=
+RESULT 1315837 1 stdout= '' stderr= 'acquire_lock:zsystem:2: failed to lock file /home/christian/.local/share/agent-tmp/mountd-install-fixture-9fm52d39/synthetic & <user>/Library/Application Support/mountd/menubar-install.lock: resource temporarily unavailable\nanother menu bar build/install is active, or lock unavailable: /home/christian/.local/share/agent-tmp/mountd-install-fixture-9fm52d39/synthetic & <user>/Library/Application Support/mountd/menubar-install.lock\n'
+RUN ['zsh', 'build.sh'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-9fm52d39/menubar HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-9fm52d39/synthetic & <user> tag= build-contender mode=
+RESULT 1315866 1 stdout= '' stderr= 'acquire_lock:zsystem:2: failed to lock file build/.menubar-build.lock: resource temporarily unavailable\nanother menu bar build/install is active, or lock unavailable: build/.menubar-build.lock\n'
+RESULT 1315764 1 stdout= 'built: build/Mountd Menu Bar.app\n' stderr= ''
+Traceback (most recent call last):
+  File "/home/christian/Documents/dev/mountd/tests/audit/round1-installer-review.py", line 269, in <module>
+    run_case(mode, lambda f, mode=mode: recovery(f, mode))
+    ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/christian/Documents/dev/mountd/tests/audit/round1-installer-review.py", line 252, in run_case
+    exec(compile(SETUP + "    challenge(locals())\n", str(BASE), "exec"), {"__file__": str(BASE), "challenge": challenge})
+    ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/christian/Documents/dev/mountd/menubar/test-build.py", line 98, in <module>
+    # Failed first installs must leave neither an app nor a login job behind.
+  File "/home/christian/Documents/dev/mountd/tests/audit/round1-installer-review.py", line 249, in challenge
+    case(f)
+    ~~~~^^^
+  File "/home/christian/Documents/dev/mountd/tests/audit/round1-installer-review.py", line 269, in <lambda>
+    run_case(mode, lambda f, mode=mode: recovery(f, mode))
+                                        ~~~~~~~~^^^^^^^^^
+  File "/home/christian/Documents/dev/mountd/tests/audit/round1-installer-review.py", line 217, in recovery
+    assert "recovery files retained" in result, result
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: built: build/Mountd Menu Bar.app

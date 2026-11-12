@@ -1,0 +1,67 @@
+COMMAND ['git', 'branch', '--show-current']
+EXIT 0
+hardening-audit-rounds
+
+COMMAND ['git', 'rev-parse', 'HEAD', 'origin/hardening-audit-rounds']
+EXIT 0
+b400b9de679f5bab468518e0baa49b406329e2ce
+b400b9de679f5bab468518e0baa49b406329e2ce
+
+COMMAND ['git', 'merge-base', '--is-ancestor', 'c367823', 'HEAD']
+EXIT 0
+
+COMMAND ['git', 'reflog', 'show', '-1', '--date=iso', 'refs/remotes/origin/hardening-audit-rounds']
+EXIT 0
+b400b9d refs/remotes/origin/hardening-audit-rounds@{2026-11-12 10:03:36 +1000}: update by push
+
+COMMAND ['git', 'status', '--short']
+EXIT 0
+ M docs/audit/swarm-rounds.md
+?? docs/audit/round1-installer-review.md
+?? tests/audit/round1-installer-review-checks.log
+?? tests/audit/round1-installer-review-locks.log
+?? tests/audit/round1-installer-review-negative.log
+?? tests/audit/round1-installer-review-recovery-initial.log
+?? tests/audit/round1-installer-review-recovery.log
+?? tests/audit/round1-installer-review-signals.log
+?? tests/audit/round1-installer-review-signals.py
+?? tests/audit/round1-installer-review.py
+?? tests/audit/round1-ipc-controls-config.log
+
+COMMAND ['git', 'diff', '--', 'menubar/build.sh', 'menubar/test-build.py', 'tests/audit/round1-installer-overlap.py']
+EXIT 0
+
+SHA256 26ea441735c84c4a12a506a809890d21b08bd80ddd7d2684ba37ea8bd1fd3a41 menubar/build.sh
+SHA256 32575de796e3dff7c8ddaa5fe0326c863738dea8f471a67154a7d8d96c2ea37c menubar/test-build.py
+SHA256 83a443cfdddbd8882bc60416aceed1af4e3d81ce3b6e844bf3b92c09e2edad92 tests/audit/round1-installer-overlap.py
+SHA256 9babda05592d4a1339819587234dc03c45857d3143bbff75105667aa34d9cc85 tests/audit/round1-installer-review.py
+SHA256 236e1d2446e2a3f915a89dba28b85a7f1237b374ea8b0a22fcf0efd2a55de869 tests/audit/round1-installer-review-signals.py
+SHA256 7c7eb51b46d0ba7b612f89fb15c237588eb75f29d02155893a4987ef9cceb9f3 docs/audit/round1-installer-review.md
+SYNTAX PASS tests/audit/round1-installer-review-signals.py
+SYNTAX PASS tests/audit/round1-installer-review.py
+OWNED WHITESPACE PASS
+OWNED SCRATCH CLEANUP PASS: all 13 logged roots removed after fixture cleanup
+RECORDED INSTALLER PIDS STILL PRESENT: []
+SUITE EXITS: locks 0; recovery initial 69 before test; recovery 0; negative 1 expected assertion; owner signals 1 lock wait expired before test
+OWNED docs/audit/round1-installer-review.md
+OWNED tests/audit/round1-installer-review-checks.log
+OWNED tests/audit/round1-installer-review-locks.log
+OWNED tests/audit/round1-installer-review-negative.log
+OWNED tests/audit/round1-installer-review-recovery-initial.log
+OWNED tests/audit/round1-installer-review-recovery.log
+OWNED tests/audit/round1-installer-review-signals.log
+OWNED tests/audit/round1-installer-review-signals.py
+OWNED tests/audit/round1-installer-review.py
+COMMAND ['git', 'merge-base', '--is-ancestor', '0be609a', 'HEAD']
+EXIT 0
+
+COMMAND ['git', 'log', '--oneline', '0be609a..HEAD']
+EXIT 0
+b400b9d challenge control names and shutdown admission
+
+COMMAND ['git', 'diff', '0be609a', 'HEAD', '--', 'menubar/build.sh', 'menubar/test-build.py', 'tests/audit/round1-installer-overlap.py']
+EXIT 0
+
+COMMAND ['git', 'ls-remote', 'origin', 'refs/heads/hardening-audit-rounds']
+EXIT 0
+b400b9de679f5bab468518e0baa49b406329e2ce	refs/heads/hardening-audit-rounds
