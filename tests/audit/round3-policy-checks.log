@@ -1,0 +1,13 @@
+commands run from /home/christian/Documents/dev/mountd
+python ast.parse tests/audit/round3-policy.py
+python AST: pass
+argv=['rustfmt', '--edition', '2021', '--check', 'tests/audit/round3-policy.rs']
+rustfmt_exit=0
+owned source/report whitespace: pass
+policy source and fixture manifest: pass
+handoff owned source/report whitespace: pass
+handoff policy source and fixture manifest: pass
+selected tests: 6 pass; 210 existing tests filtered out
+outer_exit=0
+owned disposable crate absence: pass
+suite_log_sha256=4754c88dc6cf90fba74fb5dc53be0cec996d35dc08a0c33c06be877c0f9730d3

@@ -1,0 +1,51 @@
+sha256 847874fe02ccaa8b389f26337b436719c75513ede147f6a219ecbfb61fd49926 src/bin/mountctl.rs
+sha256 2ade193bd3fd5b076f0a3fa01723d4b6eefc358e2ae47b6525e9ca080692a4c8 src/bin/mountd.rs
+sha256 d8c0c95ae6ff5f0f96dd145bce6f076f0119df01b1a0666113bd924669a78094 src/config.rs
+sha256 460fdeedc8bd07c5cc452f726e1bd6bab23de718dac98d234f45b2e459fe049d src/cred.rs
+sha256 db39c3f2790dcf06a5a0521a5b1692a657cd84649c82a07e0a2d2e028f5f5cc9 src/deps.rs
+sha256 5d60f728b38039f1cbc3ec525fe8e657efbe1699761995dbb43bb5e58e121dd7 src/engine.rs
+sha256 dc34aeced006b4178638ba53cf011e2deaf322b361c353edc4374f84da61aee3 src/fingerprint.rs
+sha256 43817dfc986479a95842ee3886b2ed8a6e12d3d3f9bff77733353e8dfef8b7a4 src/ipc.rs
+sha256 9e15a7f850e200506ceca9bfb66396cb894c4f4f7274fd24dfdac8e48f1e7296 src/launchd.rs
+sha256 e0e55024ac8e0c80ced6d10a1eb7961083dc298a10d50541f1284d71826b448e src/lib.rs
+sha256 5ec31492c6a9b23dd06fca046db8f3a39077706694ae80159765a954bf8dbef4 src/mountcmd.rs
+sha256 aab40c5d1ef589b85e8ee525e961ba8a66c6f26a0fae9a6e74b3e5828ef93a21 src/mtab.rs
+sha256 1e13108279f12398c0c9b893ecf5e00543828e696e4dc7d3793b69c08481071d src/ops.rs
+sha256 80425f61482d8c53acfcb0a1f6a46411672d4f47bd05d70fe736919e52e601e0 src/power.rs
+sha256 b354479382cfe327529f7e1527ecf5f6b29a4632f17ab7c7edc0b1f57f8eacc5 src/probe.rs
+sha256 82ef9d2cb2c0deff6a118577c3e3a9f6c400893fe8eaf8e5268df6495b4c0665 src/reconcile.rs
+sha256 526b411f7e136c1a1a01bbf46882673135cb07a2980fcdeadf74707250a2d367 src/state.rs
+sha256 d572f85ef5c96410e6fa85d67220e4da06a13b22a8eb18e377c665974d94974b src/watcher.rs
+sha256 136eaa29ea9b0af777cd7d86239765a5e7f836a0aa88a7aefdf4ffaedc466bb0 src/wol.rs
+sha256 96600607dafc9fdf9131da60b851787f9611fcd38f41b040334ae838a4da1d3c Cargo.toml
+sha256 6408d5a07ea8c80acd23da7efcdeff9165c474625964420ed1fd2abc85cec3e3 Cargo.lock
+sha256 1ce14c42004a76da7f2516338b16cf0f4d8f458b079b5b11cd35a4d15df94e12 tests/portable-reconciler.py
+sha256 fa24c53e6b60579672a015b239b56d173a1f09c3549efe96ed4f2405842d660e tests/audit/round3-policy.py
+sha256 e84f3555b0db3d3bce16df233c78273f5ef9e9e37c486f6bbd0e68adc29c1506 tests/audit/round3-policy.rs
+SystemOps: all 9 methods hard panic; FakeOps: byte-identical
+fixture=/home/christian/.local/share/agent-tmp/mountd-round3-policy-tzhjurn1
+generated_sha256 eb88a65b72d6d53dd1cb295cf044eda7646725ab7f83f6eb8ee7c74131d5b9d3 src/engine.rs
+generated_sha256 b68da4c1c80b09a2ee1e075e0170b44afe31b2c3a85558bd864f2efb5db981c6 src/ops.rs
+generated_sha256 cbce2a25d6dc504e08b6f0a96da63c2e679b6e090d521409c3876dba0ae27c4c src/power.rs
+generated_sha256 0a9183961f7d1cd25edb19c464423567c379d62881b6b9b27767738c56eaad8b Cargo.toml
+generated_sha256 5b21aacb88331d4dc934cab40459a5806bbb21b169115f7c3d81cb5d62d24fe1 Cargo.lock
+cwd=/home/christian/.local/share/agent-tmp/mountd-round3-policy-tzhjurn1 argv=['cargo', '--offline', '--locked', 'test', '--lib', 'engine::round3_policy::', '--', '--test-threads=1', '--nocapture']
+   Compiling mountd-round3-policy-fixture v0.4.0 (/home/christian/.local/share/agent-tmp/mountd-round3-policy-tzhjurn1)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.25s
+     Running unittests src/lib.rs (/home/christian/Documents/dev/mountd/target/portable-daemon/debug/deps/mountd-92f63325b1f963a4)
+
+running 6 tests
+test engine::round3_policy::health_success_breaks_failure_streak_before_confirmed_migration ... ok
+test engine::round3_policy::interrupted_grace_and_busy_policy_retry_require_continuous_loss ... ok
+test engine::round3_policy::invalid_reload_preserves_confirmations_valid_reorder_restarts_them ... ok
+test engine::round3_policy::invalid_reload_retains_grace_valid_policy_change_discards_it ... ok
+test engine::round3_policy::migration_sequences_match_consecutive_winner_model ... migration model: 625 sequences, 2500 reconcile transitions
+ok
+test engine::round3_policy::source_replacement_discards_partial_migration_evidence ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 210 filtered out; finished in 7.11s
+
+cargo_exit=0
+owned disposable crate removed
+source_identity=unchanged elapsed_seconds=27.450
+outer_exit=0

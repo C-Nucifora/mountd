@@ -238,9 +238,9 @@ zero consecutive clean rounds; it does not satisfy the clean-round rule.
 
 ## Round 2: process and credential boundary compositions
 
-Status: process/drain task stopped after provider refusal. The independent
-credential/path task remains active within its original scope. Neither may edit
-production. Round 2 is incomplete and cannot count as a clean round.
+Status: R2-CRED-1 is fixed, independently reviewed and published in `2224097`
+and `e38bd63`. Process/drain coverage remains stopped after provider refusal.
+Round 2 is incomplete across its planned scope and cannot count as clean.
 This is a new round, not a relabelling of the round-1 review results.
 
 | Owner | New hypotheses and bounded coverage |
@@ -395,3 +395,22 @@ current production failures. No source change followed the independent review.
 Native metadata compatibility and ignored Keychain tests remain open. The
 provider-refused process/drain coverage remains stopped and is not included in
 this acceptance. Round 3's two independent owners remain active.
+
+### Round-3 policy result
+
+The independent [policy sequence review](round3-policy-breaker.md) found no new
+substantive defect. All six fresh tests pass, including a separate
+consecutive-winner model over 625 length-four sequences and 2500 transitions.
+Additional cases cover interrupted grace with busy retries, source replacement,
+failed versus valid policy reload, reordered endpoint priorities and a health
+success breaking a failure streak before migration. Parent reviewed the oracles,
+fixture boundary, source hashes and exact execution evidence.
+
+The model's expected behavior comes from continuous-loss grace and consecutive
+eligible-winner requirements. It checks observable FakeOps effects as well as
+stored evidence. All SystemOps methods remain hard failures; no real command,
+resolver, credential or share is used. Only these six new tests ran, not the
+210 filtered existing tests. No production fix or redundant broad rerun is
+needed for this evidence-only batch. The status/menu owner remains active, so
+round 3 is not yet complete. No clean-round count advances from this scoped
+result; native and refused gaps remain open.
