@@ -1,0 +1,6 @@
+REVIEWER ANNOTATION: the redirected command produced no output.
+ARGS: names --negative config
+LOCK: flock -w 600 /home/christian/.local/state/agent-swarms/heavy.lock
+OBSERVED_SHELL_EXIT=1
+The 600-second lock acquisition expired before the Python fixture or Cargo started.
+UNRUN: no negative-control pass/fail result exists. No retry was started.
