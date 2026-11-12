@@ -1,9 +1,8 @@
 # Extended audit rounds
 
-The user requested a checkpoint followed by a pause during round 1. No further
-workers or rounds will start. Signed topic-branch commits preserve the reviewed
-changes and verification evidence. Round 1 is not a completed clean round;
-rounds 2 and 3 and the two-consecutive-clean-round requirement remain deferred.
+The user resumed the approved audit after checkpoint `0be609a`. The deferred IPC and installer challenges completed without a new confirmed
+defect; round 2 now targets process, credential and filesystem boundaries. The checkpoint and its evidence remain intact. Round 1 is complete within the recorded portable scope. Rounds 2 and 3 and
+the two-consecutive-clean-round requirement remain in force.
 
 The user reopened the audit on 2026-11-12 and authorized topic-branch pushes.
 Baseline: `a66778e`. The prior findings and acceptance limits remain recorded in
@@ -41,8 +40,10 @@ signing. No published history was rewritten.
 
 ## Round 1: cancellation sequences and IPC admission
 
-Status: checkpointed after four confirmed fixes. This round does not count as
-complete. Fresh independent IPC and installer fix challenges remain deferred.
+Status: complete within portable coverage after four confirmed fixes and fresh
+lifecycle, IPC and installer challenges. It is not a clean round because the
+breakers found substantive defects. Consecutive clean rounds: zero. Native
+acceptance and explicitly unrun supplemental cases remain separate.
 
 Initial tool-created worktrees belonged to the unrelated default project. Both
 workers refused that checkout before editing or running tests. The delegation
@@ -182,3 +183,103 @@ All fix signatures were verified against the configured public signing key.
 Further audits are paused at the user's request. Resume with the deferred
 independent IPC/installer challenges, then the remaining new rounds. No clean
 round or native acceptance is claimed by this checkpoint.
+
+## Resumption after checkpoint
+
+The latest instruction revokes the pause. Start with two Astra/high/priority
+reviewers, disjoint report/fixture ownership and no production edits. Current
+host headroom permits this small swarm; all heavy jobs still acquire and release
+the shared lock individually. No new top-level thread or checkout is created.
+The tool-created worktree mismatch described above remains a reason to use the
+explicit mountd path and isolated disposable test crates.
+
+The IPC reviewer must challenge the option terminators and encoded request
+boundary with new bounded cases, then inspect nearby transport/admission
+behavior. The installer reviewer must challenge transaction exclusion and
+rollback lifetime with new controlled interleavings and retain RF-1 uncertainty
+semantics. Both receive the earlier findings, responses and native limits.
+Confirmed findings need reproducible evidence; speculative concerns are coverage
+gaps rather than defects. Fresh review results will determine integration and
+the next round. No refused testing payload is being retried.
+
+### Resumed IPC review
+
+The fresh [independent IPC review](round1-ipc-review.md) found no new defect in
+24 generated encoding boundaries, 65 control-character rejections, 39 actual
+CLI dispatches and a combined cancellation/saturation/shutdown case. Three new
+test functions passed. Parent reviewed the fixture logic and verified its source
+hashes, then signed and published `b400b9d`, `challenge control names and shutdown
+admission`. Production files are unchanged.
+
+The reviewer's two negative controls did not execute: each exhausted its
+600-second shared-lock acquisition wait. Their logs state that limit rather
+than claiming regression failures. Parent queued separate 900-second bounded
+acquisitions for those controls, releasing the lock between them. This is a
+resource retry, not a retry of refused testing. Installer review remains live;
+round 1 is not yet closed and no clean-round count advances.
+
+### Resumed installer review and round-1 disposition
+
+The [independent installer review](round1-installer-review.md) passed ten new
+cases: second-lock refusal/release, simultaneous cold starts, four malformed
+lock-path cases and four rollback inspection/mutation failures. The new
+signal-guard removal control failed as required. Parent reviewed the source,
+oracles, hashes and cleanup evidence and published signed commit `0818999`,
+`challenge installer locks and uncertain rollback`. Only a blank EOF line in the
+finished checks log was removed before commit. Production is unchanged.
+
+The owner's TERM/HUP observations did not run because their 600-second lock
+wait expired. This is recorded as a supplemental gap, not a discovered product
+defect. Native zsh/APFS and launchd semantics remain open. The earlier passing
+full suites remain applicable because these reviews changed only fixtures and
+reports. No substantive round-1 finding or independent objection remains within
+the exercised portable coverage. Round 1 closes with four fixed findings and
+zero consecutive clean rounds; it does not satisfy the clean-round rule.
+
+## Round 2: process and credential boundary compositions
+
+Status: process/drain task stopped after provider refusal. The independent
+credential/path task remains active within its original scope. Neither may edit
+production. Round 2 is incomplete and cannot count as a clean round.
+This is a new round, not a relabelling of the round-1 review results.
+
+| Owner | New hypotheses and bounded coverage |
+| --- | --- |
+| Process/drain | Combine exact per-stream output limits, simultaneous stdout/stderr pressure, inherited-pipe EOF, receiver cancellation and lease/drain lifetime; exercise resolver saturation, cancellation, release and admission together |
+| Credentials/paths/options | Compose both credential reads with malformed metadata, deadline exhaustion and cancellation; challenge path preparation with local non-directory/symlink errors and compare option validation to argv without executing mounts |
+
+Each breaker should select a small nonredundant matrix from source review and
+run one focused bounded suite before considering extras. The shared queue is
+busy, so keep build/test parallelism at one and release the lock between suites.
+No new native acceptance claim follows from these fixtures. Any confirmed issue
+requires separate fix ownership, integration checks and a fresh challenge;
+otherwise preserve rejected hypotheses and exact evidence without inventing work.
+
+### Round-2 provider refusal
+
+The process/drain delegation was refused with: "This content was flagged for
+possible cybersecurity risk." That entire task is stopped. It will not be
+retried, rephrased, performed by the parent or reassigned through another
+provider/model. The task is terminal with no pending child runs. A previously
+queued shell command remained after the failure: parent verified PID 1351760
+was the mountd `round2-process-runner.py` flock waiter with no children, then
+sent SIGTERM before test execution. Other projects' similarly named processes
+were left untouched.
+
+Partial `tests/audit/round2-process*` artifacts are preserved locally. No
+completed execution or review acceptance has been established, and these files
+are not being published. No round-2 process result is claimed. The existing credential/path delegation continues within its original
+separate scope; it will not take over the refused coverage. This is an explicit
+coverage blocker, not evidence of a product defect or a clean round.
+
+### Parent supplemental IPC control
+
+The config guard-removal control acquired the shared lock near the 900-second
+bound and ran. It exited 101 at the intended regression assertion: seed 1,
+offset +1 serialized named frames of 65,535 / 65,537 / 65,537 bytes while the
+mutated config validator accepted the name. The new test therefore detects the
+known length defect. Exact source hashes, command and output are retained in
+[`round1-ipc-controls-config.log`](../../tests/audit/round1-ipc-controls-config.log).
+Only the disposable copy changed; production files remain unchanged. The menu
+control is still queued under a separate bounded lock acquisition. Earlier
+reviewer lock-expiry logs remain historical evidence, not overwritten results.
