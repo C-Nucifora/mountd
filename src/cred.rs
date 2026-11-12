@@ -248,11 +248,16 @@ fn command_failure(error: anyhow::Error) -> FetchOutcome {
 }
 
 fn parse_password_metadata(stderr: &str) -> Result<Option<String>, &'static str> {
-    let rest = stderr
+    let mut records = stderr
         .lines()
-        .find_map(|line| line.trim_start().strip_prefix("password:"))
+        .filter_map(|line| line.trim_start().strip_prefix("password:"));
+    let rest = records
+        .next()
         .ok_or("security password metadata missing")?
         .trim();
+    if records.next().is_some() {
+        return Err("ambiguous password metadata");
+    }
     if let Some(hex) = rest.strip_prefix("0x") {
         let hex = hex
             .split_whitespace()
@@ -262,7 +267,11 @@ fn parse_password_metadata(stderr: &str) -> Result<Option<String>, &'static str>
             return Err("invalid password hex");
         }
         decode_hex(hex).map(Some).ok_or("invalid password hex")
-    } else if rest.starts_with('"') && rest.ends_with('"') {
+    } else if rest
+        .strip_prefix('"')
+        .and_then(|literal| literal.strip_suffix('"'))
+        .is_some()
+    {
         Ok(None)
     } else {
         Err("invalid password metadata")
@@ -283,6 +292,54 @@ mod tests {
         assert!(parse_password_metadata("permission denied").is_err());
         assert!(parse_password_metadata("password: 0xabc").is_err());
         assert!(!format!("{:?}", FetchOutcome::Found("secret".into())).contains("secret"));
+    }
+
+    #[test]
+    fn metadata_requires_distinct_literal_quotes() {
+        for metadata in [
+            "password: \"",
+            "password: \"deadbeef",
+            "password: deadbeef\"",
+        ] {
+            assert_eq!(
+                parse_password_metadata(metadata),
+                Err("invalid password metadata")
+            );
+        }
+        for metadata in [
+            "password: \"\"",
+            "password: \"deadbeef\"",
+            "keychain: \"fixture\"\n\tpassword: \"deadbeef\" \r\nclass: \"inet\"\n",
+        ] {
+            assert_eq!(parse_password_metadata(metadata), Ok(None));
+        }
+        assert_eq!(
+            parse_password_metadata("class: \"inet\"\n  password: 0x70C3A4 \"...\"\n"),
+            Ok(Some("pä".into()))
+        );
+        assert_eq!(
+            parse_password_metadata("password: 0x6e6c0a"),
+            Ok(Some("nl\n".into()))
+        );
+    }
+
+    #[test]
+    fn metadata_requires_exactly_one_password_record() {
+        for (first, second) in [
+            ("\"deadbeef\"", "0x70C3A4 \"...\""),
+            ("0x70C3A4 \"...\"", "\"deadbeef\""),
+            ("\"deadbeef\"", "\"deadbeef\""),
+            ("0x70C3A4", "0x70C3A4"),
+            ("\"", "\"deadbeef\""),
+            ("\"deadbeef\"", "\""),
+            ("", "\"deadbeef\""),
+            ("\"deadbeef\"", ""),
+        ] {
+            assert_eq!(
+                parse_password_metadata(&format!("password: {first}\n\tpassword: {second}\n")),
+                Err("ambiguous password metadata")
+            );
+        }
     }
 
     #[test]
