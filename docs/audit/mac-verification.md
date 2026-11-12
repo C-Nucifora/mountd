@@ -39,6 +39,12 @@ Linux IPC audit's `/proc/self/fd` measurements are not native Mac evidence.
 During the menu recovery case below, also use mount names `--help`, `-h` and
 `--`; capture fake mountctl argv and require `--` before each name in both actions.
 
+The round-3 [status/menu review](round3-status-menu-review.md) adds exact data
+and focus cases: all sixteen lifecycle forms, omitted optional fields, malformed
+rows, repeated valid/error/valid updates during menu tracking, and captured
+name/path values after rows reorder. Run those with the real Swift decoder and
+AppKit. The Rust fixture proves only the producer/data contract.
+
 ## Runtime checks requiring the disposable Mac
 
 Record each case as pass, fail or not run. For failures, include the isolated

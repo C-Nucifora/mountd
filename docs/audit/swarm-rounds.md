@@ -414,3 +414,37 @@ resolver, credential or share is used. Only these six new tests ran, not the
 needed for this evidence-only batch. The status/menu owner remains active, so
 round 3 is not yet complete. No clean-round count advances from this scoped
 result; native and refused gaps remain open.
+
+### Round-3 status/menu result and disposition
+
+The independent [status/menu contract review](round3-status-menu-review.md)
+found no new substantive defect. Six portable tests cover sixteen lifecycle
+forms, optional field combinations, malformed rows and envelopes, status order
+and snapshots, escaping and unknown additive fields. The final run used the
+reviewed registry versions and checksums. An earlier passing run with newer
+cached dependencies remains labelled as a fixture-fidelity limit; the aligned
+rerun resolved that concern without changing test or production semantics.
+
+Parent reviewed source extraction, test expectations, dependency matching and
+source hashes. Swift/AppKit was reviewed in source only, including recovery,
+deferred rebuilds, captured action values and accessibility labels. No Linux
+reimplementation of native UI behavior was used as acceptance evidence.
+
+Round 3 completes its selected permitted scope with twelve new test functions
+across two independent reviewers and no confirmed substantive defect. It is the
+first consecutive clean result in exercised portable coverage. This scoped count
+does not close native acceptance, the stopped process/drain assignment or the
+full agreed coverage matrix. Round 4 will independently challenge distinct
+remaining permitted boundaries before any broader completion claim.
+
+## Round 4: configuration identity and native boundary source checks
+
+Start two small independent reviews, with no production changes. One covers
+pure config/endpoint/source identity and matching across documented SMB/NFS
+forms. The other reviews native mount enumeration and power-notification
+boundaries in source, with new tests only for unchanged pure helpers where
+useful. No real native API call, network probe or filesystem mount is permitted.
+The refused process/drain work remains stopped; neither owner may take it over.
+Each must identify nonredundant new hypotheses and preserve exact executed versus
+source-only versus unavailable native results. No finding or fix is required to
+fill a round; confirmed defects need a separate fixer and fresh challenge.

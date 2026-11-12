@@ -1,0 +1,86 @@
+cwd /home/christian/Documents/dev/mountd command git remote get-url origin
+https://github.com/C-Nucifora/mountd.git
+exit 0
+cwd /home/christian/Documents/dev/mountd command git branch --show-current
+hardening-audit-rounds
+exit 0
+cwd /home/christian/Documents/dev/mountd command git rev-parse HEAD
+e38bd63bddb4b5850bc97fb62ae8403a2a4db741
+exit 0
+cwd /home/christian/Documents/dev/mountd command git merge-base --is-ancestor 2224097 HEAD
+exit 0
+cwd /home/christian/Documents/dev/mountd command git reflog show -1 --date=iso refs/remotes/origin/hardening-audit-rounds
+e38bd63 refs/remotes/origin/hardening-audit-rounds@{2026-11-12 11:23:52 +1000}: update by push
+exit 0
+cwd /home/christian/Documents/dev/mountd command git diff --exit-code 2224097 -- src/state.rs src/engine.rs src/ipc.rs src/reconcile.rs src/bin/mountctl.rs menubar/Sources/main.swift Cargo.lock
+exit 0
+cwd /home/christian/Documents/dev/mountd command sha256sum -c tests/audit/round3-status-menu-source-sha256.txt
+src/state.rs: OK
+src/engine.rs: OK
+src/ipc.rs: OK
+src/reconcile.rs: OK
+src/bin/mountctl.rs: OK
+menubar/Sources/main.swift: OK
+Cargo.lock: OK
+exit 0
+cwd /home/christian/Documents/dev/mountd command rustfmt --edition 2021 --check tests/audit/round3-status-menu.rs
+exit 0
+cwd /home/christian/Documents/dev/mountd command git diff --check -- docs/audit/round3-status-menu-review.md 'tests/audit/round3-status-menu*'
+exit 0
+cwd /home/christian/Documents/dev/mountd command git status --short -- docs/audit/round3-status-menu-review.md 'tests/audit/round3-status-menu*'
+?? docs/audit/round3-status-menu-review.md
+?? tests/audit/round3-status-menu-checks.log
+?? tests/audit/round3-status-menu-initial-suite.log
+?? tests/audit/round3-status-menu-source-sha256.txt
+?? tests/audit/round3-status-menu-suite.log
+?? tests/audit/round3-status-menu.py
+?? tests/audit/round3-status-menu.rs
+exit 0
+python_ast=pass
+owned_source_and_report_whitespace=pass
+swiftc_in_path None
+No Swift/AppKit, native UI, transport, helper or broader integration check ran.
+6a92ef9321d3dce9c6383f8f04c00023a6e9c5c0d0d68e664a955b44f3f4c140 tests/audit/round3-status-menu.py
+81e07029caccd841e5ac7902907f851b3c552d9b8adbee6bf9e78144347cd5c0 tests/audit/round3-status-menu.rs
+b33cda7ad28e7a8bbbc33940dde059ad2364922a2d1701390e2c174d69ab90b4 tests/audit/round3-status-menu-initial-suite.log
+Final handoff checks, Python 3.14.4
+cwd /home/christian/Documents/dev/mountd command git branch --show-current
+hardening-audit-rounds
+exit 0
+cwd /home/christian/Documents/dev/mountd command git rev-parse HEAD
+92635eaa9a7a052d48b23c7ff005fd5b2fb9eec7
+exit 0
+cwd /home/christian/Documents/dev/mountd command sha256sum -c tests/audit/round3-status-menu-source-sha256.txt
+src/state.rs: OK
+src/engine.rs: OK
+src/ipc.rs: OK
+src/reconcile.rs: OK
+src/bin/mountctl.rs: OK
+menubar/Sources/main.swift: OK
+Cargo.lock: OK
+exit 0
+cwd /home/christian/Documents/dev/mountd command git diff --exit-code 2224097 -- src/state.rs src/engine.rs src/ipc.rs src/reconcile.rs src/bin/mountctl.rs menubar/Sources/main.swift Cargo.lock
+exit 0
+cwd /home/christian/Documents/dev/mountd command git status --short -- docs/audit/round3-status-menu-review.md 'tests/audit/round3-status-menu*'
+?? docs/audit/round3-status-menu-review.md
+?? tests/audit/round3-status-menu-checks.log
+?? tests/audit/round3-status-menu-initial-suite.log
+?? tests/audit/round3-status-menu-source-sha256.txt
+?? tests/audit/round3-status-menu-suite.log
+?? tests/audit/round3-status-menu.py
+?? tests/audit/round3-status-menu.rs
+exit 0
+5bdb3e0c411dc24d187e141ae7739863d5dc0d5fae9adea8676a4cba40c9a5e2 docs/audit/round3-status-menu-review.md
+b33cda7ad28e7a8bbbc33940dde059ad2364922a2d1701390e2c174d69ab90b4 tests/audit/round3-status-menu-initial-suite.log
+1de269db8bf988ddc22a5c4124d30705b4e7d5806c7fa3248343b5cb78d6fa49 tests/audit/round3-status-menu-source-sha256.txt
+8f95ab0e355b41a9cb414b4f13510771ba1b868ac43602a50714462ac4b5a01d tests/audit/round3-status-menu-suite.log
+6a92ef9321d3dce9c6383f8f04c00023a6e9c5c0d0d68e664a955b44f3f4c140 tests/audit/round3-status-menu.py
+81e07029caccd841e5ac7902907f851b3c552d9b8adbee6bf9e78144347cd5c0 tests/audit/round3-status-menu.rs
+executed dependency serde_json 1.0.151
+executed dependency tokio 1.53.1
+final_owned_files_whitespace_and_completed_evidence=pass
+Both bounded invocations completed with exit 0; six unique tests, no production changes by reviewer.
+Unrun: Swift/Foundation/AppKit, native accessibility/focus, real CLI transport, broader parent suites.
+Final report records parent HEAD 92635eaa9a7a052d48b23c7ff005fd5b2fb9eec7 and push reflog 2026-11-12 11:43:43 +1000.
+final_report_sha256 f7888c6edf62b044f8f1ef65cdc8717528d0f25072f7bb516ab7cd0d101c3a1e
+final_report_whitespace=pass
