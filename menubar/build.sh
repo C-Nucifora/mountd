@@ -38,7 +38,8 @@ acquire_lock "$BUILD_DIR/.menubar-build.lock"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-swiftc -O -swift-version 5 -o "$BIN" Sources/main.swift Sources/Command.swift
+# Match the executable deployment target to LSMinimumSystemVersion below.
+swiftc -O -swift-version 5 -target "$(uname -m)-apple-macosx13.0" -o "$BIN" Sources/main.swift Sources/Command.swift
 
 cat > "$APP/Contents/Info.plist" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>

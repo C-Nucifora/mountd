@@ -21,8 +21,8 @@ with tempfile.TemporaryDirectory(prefix="mountd-install-fixture-") as temp:
     tools = root / "tools"
     tools.mkdir()
     scripts = {
-        "uname": '#!/bin/sh\necho Darwin\n',
-        "swiftc": '#!/bin/sh\nwhile [ "$1" != -o ]; do shift; done\nshift\nprintf synthetic > "$1"\n',
+        "uname": '#!/bin/sh\nif [ "${1:-}" = -m ]; then echo "${SYNTHETIC_ARCH:-arm64}"; else echo Darwin; fi\n',
+        "swiftc": '#!/bin/sh\ncase " $* " in *" -target ${SYNTHETIC_ARCH:-arm64}-apple-macosx13.0 "*) ;; *) echo "missing macos 13 target" >&2; exit 1 ;; esac\nwhile [ "$1" != -o ]; do shift; done\nshift\nprintf synthetic > "$1"\n',
         "codesign": '#!/bin/sh\nexit 0\n',
         "ditto": '#!/bin/sh\nshift; shift; shift\ncp -R "$1" "$2"\n',
         "id": '#!/bin/sh\necho 4242\n',
