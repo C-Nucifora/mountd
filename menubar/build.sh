@@ -5,16 +5,41 @@
 #                         login LaunchAgent (org.mountd.menubar)
 set -euo pipefail
 
+if [[ "$(uname -s)" != "Darwin" ]]; then
+    echo "building the menu bar app requires macOS" >&2
+    exit 1
+fi
+
 cd "$(dirname "$0")"
 APP_NAME="Mountd Menu Bar"
 BUILD_DIR="build"
 APP="$BUILD_DIR/$APP_NAME.app"
 BIN="$APP/Contents/MacOS/mountd-menubar"
 
+if ! zmodload zsh/system || ! zsystem supports flock; then
+    echo "menu bar builds require zsh/system file locking" >&2
+    exit 1
+fi
+acquire_lock() {
+    (umask 077; : >> "$1")
+    if ! zsystem flock -t 0 "$1"; then
+        print -u2 -- "another menu bar build/install is active, or lock unavailable: $1"
+        exit 1
+    fi
+}
+# Keep these inodes and locks until shell exit, including the EXIT rollback.
+if [[ "${1:-}" == "install" ]]; then
+    (umask 077; mkdir -p "$HOME/Library/Application Support/mountd")
+    acquire_lock "$HOME/Library/Application Support/mountd/menubar-install.lock"
+fi
+mkdir -p "$BUILD_DIR"
+acquire_lock "$BUILD_DIR/.menubar-build.lock"
+
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-swiftc -O -swift-version 5 -o "$BIN" Sources/main.swift
+# Match the executable deployment target to LSMinimumSystemVersion below.
+swiftc -O -swift-version 5 -target "$(uname -m)-apple-macosx13.0" -o "$BIN" Sources/main.swift Sources/Command.swift
 
 cat > "$APP/Contents/Info.plist" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -51,14 +76,103 @@ echo "built: $APP"
 
 if [[ "${1:-}" == "install" ]]; then
     DEST="$HOME/Applications/$APP_NAME.app"
-    # bootout first so the running app doesn't hold the old binary
-    launchctl bootout "gui/$(id -u)/org.mountd.menubar" 2>/dev/null || true
-    pkill -f "$APP_NAME.app/Contents/MacOS/mountd-menubar" 2>/dev/null || true
-    rm -rf "$DEST"
-    mkdir -p "$HOME/Applications"
-    cp -R "$APP" "$DEST"
-
+    mkdir -p "$HOME/Applications" "$HOME/Library/LaunchAgents"
+    STAGE="$(mktemp -d "$HOME/Applications/.mountd-install.XXXXXX")"
     PLIST="$HOME/Library/LaunchAgents/org.mountd.menubar.plist"
+    SERVICE="gui/$(id -u)/org.mountd.menubar"
+    HAD_APP=0
+    HAD_PLIST=0
+    CHANGED=0
+    STOPPED=0
+    UNSETTLED=0
+    service_loaded() {
+        local details
+        # Preserve the helper's exit status inside EXIT rollback while locks are held.
+        if details="$(exec launchctl print "$SERVICE" 2>&1)"; then
+            return 0
+        elif [[ "$details" == *'Could not find service "org.mountd.menubar"'* ]]; then
+            return 1
+        fi
+        print -u2 -- "$details"
+        return 2
+    }
+    stop_service() {
+        launchctl bootout "$SERVICE" && return 0
+        local launch_exit=$?
+        if (( launch_exit > 128 )); then
+            UNSETTLED=1
+            return 1
+        fi
+        if service_loaded; then
+            return 1
+        else
+            [[ "$?" == 1 ]]
+        fi
+    }
+    start_service() {
+        launchctl bootstrap "gui/$(id -u)" "$PLIST" && return 0
+        local launch_exit=$?
+        if (( launch_exit > 128 )); then
+            UNSETTLED=1
+            return 1
+        fi
+        # The request may have succeeded before its client reported failure.
+        service_loaded
+    }
+    rollback() {
+        if [[ "$UNSETTLED" == 1 ]]; then
+            print -u2 -- "service state uncertain; recovery files retained at $STAGE"
+            return 1
+        fi
+        local failed=0
+        if [[ "$CHANGED" == 1 ]]; then
+            if service_loaded; then
+                stop_service || failed=1
+            elif [[ "$?" != 1 ]]; then
+                failed=1
+            fi
+            if [[ "$failed" == 1 ]]; then
+                print -u2 -- "service state uncertain; recovery files retained at $STAGE"
+                return 1
+            fi
+            if ! rm -rf "$DEST"; then
+                failed=1
+            elif [[ "$HAD_APP" == 1 ]] && ! mv "$STAGE/old.app" "$DEST"; then
+                failed=1
+            fi
+            if [[ "$HAD_PLIST" == 1 ]]; then
+                cp "$STAGE/old.plist" "$PLIST" || failed=1
+            else
+                rm -f "$PLIST" || failed=1
+            fi
+        fi
+        if [[ "$STOPPED" == 1 && "$failed" == 0 ]]; then
+            start_service || failed=1
+        fi
+        if [[ "$failed" == 1 ]]; then
+            print -u2 -- "rollback incomplete; recovery files retained at $STAGE"
+            return 1
+        fi
+        rm -rf "$STAGE"
+    }
+    trap rollback EXIT
+    cp -R "$APP" "$STAGE/new.app"
+    [[ ! -e "$PLIST" ]] || { cp "$PLIST" "$STAGE/old.plist"; HAD_PLIST=1; }
+    # Never match process names: only this user's exact launchd service is ours.
+    if service_loaded; then
+        stop_service || exit 1
+        STOPPED=1
+    elif [[ "$?" != 1 ]]; then
+        exit 1
+    fi
+    if [[ -e "$DEST" ]]; then
+        mv "$DEST" "$STAGE/old.app"
+        HAD_APP=1
+    fi
+    CHANGED=1
+    mv "$STAGE/new.app" "$DEST"
+    # XML text must preserve home paths containing ampersands or angle brackets.
+    XML_BIN="$(print -r -- "$DEST/Contents/MacOS/mountd-menubar" | sed -e 's/\&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')"
     cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -68,7 +182,7 @@ if [[ "${1:-}" == "install" ]]; then
     <string>org.mountd.menubar</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$DEST/Contents/MacOS/mountd-menubar</string>
+        <string>$XML_BIN</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -83,6 +197,8 @@ if [[ "${1:-}" == "install" ]]; then
 </dict>
 </plist>
 EOF
-    launchctl bootstrap "gui/$(id -u)" "$PLIST"
+    start_service || exit 1
+    CHANGED=0
+    STOPPED=0
     echo "installed: $DEST (login item via org.mountd.menubar)"
 fi

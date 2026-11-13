@@ -11,6 +11,7 @@ pub struct MountEntry {
     pub on: String,
 }
 
+#[cfg(target_os = "macos")]
 fn cstr_field(bytes: &[libc::c_char]) -> String {
     let bytes: Vec<u8> = bytes
         .iter()
@@ -21,27 +22,42 @@ fn cstr_field(bytes: &[libc::c_char]) -> String {
 }
 
 /// List current mounts without blocking on dead filesystems.
-pub fn list() -> Vec<MountEntry> {
+#[cfg(target_os = "macos")]
+pub fn list() -> std::io::Result<Vec<MountEntry>> {
     unsafe {
         let count = libc::getfsstat(std::ptr::null_mut(), 0, libc::MNT_NOWAIT);
-        if count <= 0 {
-            return Vec::new();
+        if count < 0 {
+            return Err(std::io::Error::last_os_error());
         }
-        let mut buf: Vec<libc::statfs> = vec![std::mem::zeroed(); count as usize];
+        let mut buf: Vec<libc::statfs> = vec![std::mem::zeroed(); count as usize + 16];
         let bufsize = (buf.len() * std::mem::size_of::<libc::statfs>()) as libc::c_int;
         let n = libc::getfsstat(buf.as_mut_ptr(), bufsize as _, libc::MNT_NOWAIT);
-        if n <= 0 {
-            return Vec::new();
+        if n < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        if n as usize >= buf.len() {
+            return Err(std::io::Error::other(
+                "mount table changed during enumeration",
+            ));
         }
         buf.truncate(n as usize);
-        buf.iter()
+        Ok(buf
+            .iter()
             .map(|s| MountEntry {
                 fstype: cstr_field(&s.f_fstypename),
                 from: cstr_field(&s.f_mntfromname),
                 on: cstr_field(&s.f_mntonname),
             })
-            .collect()
+            .collect())
     }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn list() -> std::io::Result<Vec<MountEntry>> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "mount enumeration requires macOS",
+    ))
 }
 
 /// Trailing slashes are not significant in a mountpoint path.
@@ -52,8 +68,8 @@ fn same_path(a: &str, b: &str) -> bool {
 /// Find the mount entry whose mountpoint is `path`.
 ///
 /// `path` must already have been through `mountcmd::normalize_mountpoint`: the
-/// kernel reports the resolved path, so a configured symlink or trailing slash
-/// would otherwise miss and make a mounted share look unmounted forever.
+/// kernel reports the resolved path. Symlink components are unsupported;
+/// preparation rejects them without following remote filesystem ancestors.
 pub fn find_by_mountpoint<'a>(entries: &'a [MountEntry], path: &str) -> Option<&'a MountEntry> {
     entries.iter().find(|e| same_path(&e.on, path))
 }
@@ -72,6 +88,10 @@ pub fn source_address(from: &str) -> Option<String> {
         .map(|(_, h)| h)
         .unwrap_or(authority);
     let host = host.trim_end_matches(':');
+    let host = host
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .unwrap_or(host);
     if host.is_empty() {
         None
     } else {
@@ -84,21 +104,24 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn lists_root_filesystem() {
-        let entries = list();
+        let entries = list().unwrap();
         let root = find_by_mountpoint(&entries, "/").expect("root fs present");
         assert!(!root.fstype.is_empty());
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn find_by_mountpoint_misses_nonexistent() {
-        let entries = list();
+        let entries = list().unwrap();
         assert!(find_by_mountpoint(&entries, "/definitely/not/mounted").is_none());
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn trailing_slashes_are_not_significant() {
-        let entries = list();
+        let entries = list().unwrap();
         // "/" is always mounted and is the one path where the trimming rule
         // must not turn a real mountpoint into the empty string.
         assert!(find_by_mountpoint(&entries, "/").is_some());
@@ -117,6 +140,14 @@ mod tests {
         assert_eq!(
             source_address("100.64.0.11:/mnt/tank").as_deref(),
             Some("100.64.0.11")
+        );
+        assert_eq!(
+            source_address("//u@[fd00::1]/share").as_deref(),
+            Some("fd00::1")
+        );
+        assert_eq!(
+            source_address("[fd00::1]:/export").as_deref(),
+            Some("fd00::1")
         );
         // a local device has no network address to attribute a mount to
         assert_eq!(source_address("/dev/disk1s1"), None);

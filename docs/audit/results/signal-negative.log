@@ -1,0 +1,4 @@
+   Compiling mountd-native-negative-fixture v0.4.0 (/home/christian/.local/share/agent-tmp/mountd-native-negative-fixture-lrc4kho8)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.20s
+Reproduced: signalled client left pending bootstrap after rollback deleted its plist
+The mutation affected only the disposable fixture; production source is unchanged

@@ -1,0 +1,59 @@
+COMMAND ["cargo", "test", "--offline", "--locked", "--manifest-path", "/home/christian/.local/share/agent-tmp/round1-ipc-bdr5rcx_/Cargo.toml", "--lib", "round1_ipc", "--", "--nocapture"]
+   Compiling mountd-round1-ipc-breaker-fixture v0.4.0 (/home/christian/.local/share/agent-tmp/round1-ipc-bdr5rcx_)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.66s
+     Running unittests src/lib.rs (target/portable-daemon/debug/deps/mountd-40e6da3b64a7cbdc)
+
+running 9 tests
+test ipc::round1_ipc::accepted_mutations_survive_disconnect_half_close_and_shutdown ...
+thread 'ipc::round1_ipc::accepted_mutations_survive_disconnect_half_close_and_shutdown' (1139134) panicked at /home/christian/Documents/dev/mountd/tests/audit/round1-ipc-unit.rs:27:57:
+called `Result::unwrap()` on an `Err` value: socket directory must be owned by this user and not writable by others
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+test ipc::round1_ipc::completed_connections_release_slots_and_fds ...
+thread 'ipc::round1_ipc::completed_connections_release_slots_and_fds' (1139135) panicked at /home/christian/Documents/dev/mountd/tests/audit/round1-ipc-unit.rs:27:57:
+called `Result::unwrap()` on an `Err` value: socket directory must be owned by this user and not writable by others
+FAILED
+test ipc::round1_ipc::config_acceptance_implies_transportable_name ...
+thread 'ipc::round1_ipc::config_acceptance_implies_transportable_name' (1139136) panicked at /home/christian/Documents/dev/mountd/tests/audit/round1-ipc-unit.rs:27:57:
+called `Result::unwrap()` on an `Err` value: socket directory must be owned by this user and not writable by others
+FAILED
+test ipc::round1_ipc::idle_saturated_shutdown_is_bounded_and_holds_lock ...
+thread 'ipc::round1_ipc::idle_saturated_shutdown_is_bounded_and_holds_lock' (1139137) panicked at /home/christian/Documents/dev/mountd/tests/audit/round1-ipc-unit.rs:27:57:
+called `Result::unwrap()` on an `Err` value: socket directory must be owned by this user and not writable by others
+FAILED
+test ipc::round1_ipc::incomplete_mutation_frames_never_mutate ...
+thread 'ipc::round1_ipc::incomplete_mutation_frames_never_mutate' (1139138) panicked at /home/christian/Documents/dev/mountd/tests/audit/round1-ipc-unit.rs:27:57:
+called `Result::unwrap()` on an `Err` value: socket directory must be owned by this user and not writable by others
+FAILED
+test ipc::round1_ipc::request_response_caps_include_newline_consistently ...
+thread 'ipc::round1_ipc::request_response_caps_include_newline_consistently' (1139139) panicked at /home/christian/Documents/dev/mountd/tests/audit/round1-ipc-unit.rs:27:57:
+called `Result::unwrap()` on an `Err` value: socket directory must be owned by this user and not writable by others
+FAILED
+test ipc::round1_ipc::saturation_rejects_excess_then_recovers ...
+thread 'ipc::round1_ipc::saturation_rejects_excess_then_recovers' (1139140) panicked at /home/christian/Documents/dev/mountd/tests/audit/round1-ipc-unit.rs:27:57:
+called `Result::unwrap()` on an `Err` value: socket directory must be owned by this user and not writable by others
+FAILED
+test ipc::round1_ipc::stalled_response_writer_times_out ... STALLED_WRITER payload_bytes=1048576 sendbuf_requested=4096 elapsed_ms=10093
+ok
+test ipc::round1_ipc::valid_unicode_and_escaped_names_round_trip ...
+thread 'ipc::round1_ipc::valid_unicode_and_escaped_names_round_trip' (1139698) panicked at /home/christian/Documents/dev/mountd/tests/audit/round1-ipc-unit.rs:27:57:
+called `Result::unwrap()` on an `Err` value: socket directory must be owned by this user and not writable by others
+FAILED
+
+failures:
+
+failures:
+    ipc::round1_ipc::accepted_mutations_survive_disconnect_half_close_and_shutdown
+    ipc::round1_ipc::completed_connections_release_slots_and_fds
+    ipc::round1_ipc::config_acceptance_implies_transportable_name
+    ipc::round1_ipc::idle_saturated_shutdown_is_bounded_and_holds_lock
+    ipc::round1_ipc::incomplete_mutation_frames_never_mutate
+    ipc::round1_ipc::request_response_caps_include_newline_consistently
+    ipc::round1_ipc::saturation_rejects_excess_then_recovers
+    ipc::round1_ipc::valid_unicode_and_escaped_names_round_trip
+
+test result: FAILED. 1 passed; 8 failed; 0 ignored; 0 measured; 105 filtered out; finished in 10.15s
+
+error: test failed, to rerun pass `--lib`
+
+CARGO_EXIT=101

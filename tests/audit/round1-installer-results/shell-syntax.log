@@ -1,0 +1,3 @@
+$ zsh -n menubar/build.sh
+
+exit: 0; expected: 0; elapsed: 0.02s

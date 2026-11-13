@@ -1,0 +1,52 @@
+Python AST parse: pass, no bytecode writes
+COMMAND ["rustfmt", "--edition", "2021", "--check", "tests/audit/round1-ipc-review-cli.rs", "tests/audit/round1-ipc-review-common.rs", "tests/audit/round1-ipc-review-unit.rs"]
+EXIT=0
+Owned fixture trailing whitespace: pass
+Source hashes still match completed names suite: pass
+Four reviewed production paths still match checkpoint: pass
+Lightweight source/syntax checks only, no build or test job
+Final source hashes match all three executed-suite snapshots: pass
+Owned fixture directories removed: ["/home/christian/.local/share/agent-tmp/r1-review-iere7dq_", "/home/christian/.local/share/agent-tmp/r1-review-e0ruq84y", "/home/christian/.local/share/agent-tmp/r1-review-w7si9l14"]
+Both expired lock-waiter processes are gone: pass
+Final Python AST and owned source/report whitespace: pass
+COMMAND ["git", "branch", "--show-current"]
+hardening-audit-rounds
+EXIT=0
+COMMAND ["git", "rev-parse", "HEAD"]
+0be609a323c8e957bf8e4c20dc55e06d5e2bba07
+EXIT=0
+COMMAND ["git", "remote", "-v"]
+origin	https://github.com/C-Nucifora/mountd.git (fetch)
+origin	https://github.com/C-Nucifora/mountd.git (push)
+EXIT=0
+COMMAND ["git", "merge-base", "--is-ancestor", "0be609a", "HEAD"]
+EXIT=0
+COMMAND ["git", "merge-base", "--is-ancestor", "2c01b86", "HEAD"]
+EXIT=0
+COMMAND ["git", "diff", "--quiet", "0be609a", "--", "Cargo.toml", "Cargo.lock", "src/bin/mountctl.rs", "menubar/Sources/main.swift", "src/config.rs", "src/ipc.rs", "src/reconcile.rs", "src/probe.rs", "src/wol.rs", "src/mountcmd.rs", "tests/portable-ipc-config.py", "tests/audit/round1-ipc-breaker.py"]
+EXIT=0
+COMMAND ["git", "diff", "--check"]
+EXIT=0
+COMMAND ["git", "status", "--short"]
+ M docs/audit/swarm-rounds.md
+?? docs/audit/round1-installer-review.md
+?? docs/audit/round1-ipc-review.md
+?? tests/audit/round1-installer-review-locks.log
+?? tests/audit/round1-installer-review-negative.log
+?? tests/audit/round1-installer-review-recovery-initial.log
+?? tests/audit/round1-installer-review-recovery.log
+?? tests/audit/round1-installer-review-signals.py
+?? tests/audit/round1-installer-review.py
+?? tests/audit/round1-ipc-review-checks.log
+?? tests/audit/round1-ipc-review-cli.log
+?? tests/audit/round1-ipc-review-cli.rs
+?? tests/audit/round1-ipc-review-common.rs
+?? tests/audit/round1-ipc-review-names.log
+?? tests/audit/round1-ipc-review-negative-config.log
+?? tests/audit/round1-ipc-review-negative-menu.log
+?? tests/audit/round1-ipc-review-source-sha256.txt
+?? tests/audit/round1-ipc-review-transport.log
+?? tests/audit/round1-ipc-review-unit.rs
+?? tests/audit/round1-ipc-review.py
+EXIT=0
+RESULT: three new positive tests passed; two negative controls unrun after bounded lock acquisition expiry; no production finding confirmed

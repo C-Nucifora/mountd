@@ -31,13 +31,17 @@ pub fn json_equals(value: &serde_json::Value, want: &str) -> bool {
 /// Run one dependency check. Up = command exits 0 within its timeout and, if
 /// `json_path` is set, the value there equals `equals`.
 pub async fn check(dep: &DepCheck) -> bool {
-    let run = tokio::process::Command::new(&dep.cmd)
-        .args(&dep.args)
-        .kill_on_drop(true)
-        .output();
-    let out = match tokio::time::timeout(Duration::from_secs(dep.timeout_secs), run).await {
-        Ok(Ok(out)) => out,
-        _ => return false,
+    let mut command = tokio::process::Command::new(&dep.cmd);
+    command.args(&dep.args);
+    let out = match crate::mountcmd::command_output(
+        command,
+        Duration::from_secs(dep.timeout_secs),
+        std::sync::Arc::new(()),
+    )
+    .await
+    {
+        Ok(out) => out,
+        Err(_) => return false,
     };
     if !out.status.success() {
         return false;
@@ -66,22 +70,21 @@ pub async fn check(dep: &DepCheck) -> bool {
 /// difference is every reconcile pass stalling for one timeout instead of all
 /// of them added together.
 pub async fn check_all(cfg: &Config) -> BTreeMap<String, bool> {
-    let handles: Vec<_> = cfg
-        .deps
-        .iter()
-        .map(|(name, dep)| {
-            let name = name.clone();
-            let dep = dep.clone();
-            tokio::spawn(async move {
-                let up = check(&dep).await;
-                (name, up)
-            })
-        })
-        .collect();
+    let mut tasks = tokio::task::JoinSet::new();
+    for (name, dep) in &cfg.deps {
+        let name = name.clone();
+        let dep = dep.clone();
+        // Register before spawn: aborting the outer JoinSet does not join a running poll.
+        let activity = crate::mountcmd::CommandActivity::begin();
+        tasks.spawn(async move {
+            let _activity = activity;
+            (name, check(&dep).await)
+        });
+    }
 
     let mut out = BTreeMap::new();
-    for h in handles {
-        match h.await {
+    while let Some(result) = tasks.join_next().await {
+        match result {
             Ok((name, up)) => {
                 out.insert(name, up);
             }
@@ -189,6 +192,52 @@ args = ["1"]
             elapsed < Duration::from_millis(1800),
             "two 1s deps must overlap, took {elapsed:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn cancellation_kills_and_reaps_dependency_child() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("fake-dep");
+        let pidfile = dir.path().join("pid");
+        std::fs::write(
+            &program,
+            "#!/bin/sh\necho $$ > \"$1\"\nexec /bin/sleep 30\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let mut cfg = Config::from_toml_str("").unwrap();
+        cfg.deps.insert(
+            "fake".into(),
+            dep(program.to_str().unwrap(), &[pidfile.to_str().unwrap()]),
+        );
+        let task = tokio::spawn(async move { check_all(&cfg).await });
+        let pid: i32 = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if let Ok(text) = tokio::fs::read_to_string(&pidfile).await {
+                    if let Ok(pid) = text.trim().parse() {
+                        break pid;
+                    }
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        task.abort();
+        let _ = task.await;
+        let gone = tokio::time::timeout(Duration::from_secs(2), async {
+            while unsafe { libc::kill(pid, 0) } == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await;
+        if gone.is_err() {
+            unsafe {
+                libc::kill(pid, libc::SIGKILL);
+            }
+        }
+        assert!(gone.is_ok(), "cancelled dependency child was not reaped");
     }
 
     #[test]

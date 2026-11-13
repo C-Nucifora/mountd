@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 use mountd::{ipc, launchd};
@@ -54,11 +54,17 @@ async fn send(req: ipc::Request) -> Result<ipc::Response> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let result = run().await;
+    mountd::mountcmd::drain_commands().await;
+    result
+}
+
+async fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Status { json } => {
             let resp = send(ipc::Request::Status).await?;
-            let status = resp.status.unwrap_or_default();
+            let status = resp.status.context("daemon response missing status")?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&status)?);
             } else if status.is_empty() {
@@ -81,7 +87,9 @@ async fn main() -> Result<()> {
         }
         Cmd::Explain { name, json } => {
             let resp = send(ipc::Request::Explain { name }).await?;
-            let explanations = resp.explanations.unwrap_or_default();
+            let explanations = resp
+                .explanations
+                .context("daemon response missing explanations")?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&explanations)?);
             } else {

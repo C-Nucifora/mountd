@@ -1,0 +1,111 @@
+   Compiling mountd-reconciler-fixture v0.4.0 (/home/christian/.local/share/agent-tmp/mountd-reconciler-_0kv0r1y)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.64s
+     Running unittests src/lib.rs (/home/christian/Documents/dev/mountd/target/portable-daemon/debug/deps/mountd-a2b0959934fefeae)
+
+running 47 tests
+test engine::tests::a_busy_share_is_not_migrated ... ok
+test engine::tests::a_conditions_edge_clears_a_manual_unmount ... ok
+test engine::tests::a_dead_mount_is_detected_and_remounted_elsewhere ... ok
+test engine::tests::a_failed_mount_backs_off_and_recovers_on_a_world_change ... ok
+test engine::tests::a_healthy_mount_is_never_recovered ... ok
+test engine::tests::a_healthy_mount_survives_a_transient_condition_loss ... ok
+test engine::tests::a_manual_unmount_is_not_undone_by_the_reconciler ... ok
+test engine::tests::a_missing_credential_fails_loudly_instead_of_mounting_as_guest ... ok
+test engine::tests::a_pinned_mount_keeps_its_endpoint_attribution ... ok
+test engine::tests::a_policy_unmount_is_never_forced ... ok
+test engine::tests::a_settling_system_does_not_unmount ... ok
+test engine::tests::a_slow_mount_does_not_block_its_peers ... ok
+test engine::tests::allow_passwordless_restores_the_old_behavior ... ok
+test engine::tests::cancelled_credentials_retain_claim_and_reload_guard_until_reap ... ok
+test engine::tests::cancelled_manual_attempt_releases_claim ... ok
+test engine::tests::cancelled_mount_retains_both_guards_until_child_reap ... ok
+test engine::tests::changed_mount_source_starts_a_new_health_streak ... ok
+test engine::tests::concurrent_attempts_for_one_mount_are_serialized ... ok
+test engine::tests::credential_wait_invalidates_old_probe ... ok
+test engine::tests::dependency_change_during_credentials_prevents_mount ... ok
+test engine::tests::enumeration_failure_never_permits_a_mount ... ok
+test engine::tests::explain_includes_probe_results_and_state ... ok
+test engine::tests::failed_reload_keeps_runtime_and_repeated_reload_resets_changed_spec ... ok
+test engine::tests::falls_back_to_the_tailnet_endpoint_when_the_lan_is_gone ... ok
+test engine::tests::force_mount_on_an_already_mounted_share_is_a_no_op ... ok
+test engine::tests::force_mount_unknown_name_errors ... ok
+test engine::tests::migration_is_off_by_default ... ok
+test engine::tests::migration_moves_to_a_better_endpoint_once_confirmed ... ok
+test engine::tests::migration_reprobes_after_unmount_and_reports_failure ... ok
+test engine::tests::mounts_via_the_highest_priority_reachable_endpoint ... ok
+test engine::tests::network_identity_is_refreshed_after_dependencies ... ok
+test engine::tests::network_snapshot_change_clears_backoff_without_named_conditions ... ok
+test engine::tests::no_wake_on_lan_without_configuration ... ok
+test engine::tests::passwordless_does_not_bypass_pending_credential_cleanup ... ok
+test engine::tests::pre_sleep_skips_mounts_that_opted_out ... ok
+test engine::tests::pre_sleep_unmounts_politely ... ok
+test engine::tests::preparation_is_followed_by_sleep_shutdown_and_probe_gates ... ok
+test engine::tests::reload_waits_for_attempt_without_blocking_status_and_discards_old_state ... ok
+test engine::tests::sleep_interrupt_keeps_cancelled_child_claim_until_reap ... ok
+test engine::tests::sleep_interrupts_probe_and_blocks_mounts_until_wake ... ok
+test engine::tests::sleep_unmount_budget_keeps_writer_until_child_reap ... ok
+test engine::tests::status_reports_all_configured_mounts ... ok
+test engine::tests::unmount_during_attempt_is_rejected_without_side_effects ... ok
+test engine::tests::unreachable_endpoint_waits_without_erroring ... ok
+test engine::tests::wake_gap_detects_sleep ... ok
+test engine::tests::wake_on_lan_fires_for_an_unreachable_endpoint ... ok
+test engine::tests::wake_settling_does_not_recover_a_suspect_mount ... ok
+
+test result: ok. 47 passed; 0 failed; 0 ignored; 0 measured; 161 filtered out; finished in 11.42s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (/home/christian/Documents/dev/mountd/target/portable-daemon/debug/deps/mountd-a2b0959934fefeae)
+
+running 25 tests
+test reconcile::tests::a_confirmed_better_endpoint_triggers_migration ... ok
+test reconcile::tests::a_manually_unmounted_share_is_not_remounted ... ok
+test reconcile::tests::a_mount_whose_endpoint_stopped_answering_is_recovered ... ok
+test reconcile::tests::a_pending_retry_defers_the_attempt ... ok
+test reconcile::tests::a_settling_system_never_unmounts_however_long_conditions_have_been_gone ... ok
+test reconcile::tests::all_of_needs_all ... ok
+test reconcile::tests::any_of_needs_one ... ok
+test reconcile::tests::backoff_doubles_to_cap ... ok
+test reconcile::tests::backoff_saturates_instead_of_overflowing ... ok
+test reconcile::tests::candidates_carry_gate_port_and_timeouts ... ok
+test reconcile::tests::conditions_gone_briefly_does_not_unmount ... ok
+test reconcile::tests::conditions_gone_for_the_full_grace_unmounts_politely ... ok
+test reconcile::tests::decision_matrix ... ok
+test reconcile::tests::empty_when_clause_always_holds ... ok
+test reconcile::tests::endpoint_filtering_by_condition ... ok
+test reconcile::tests::explain_idle_when_nothing_holds ... ok
+test reconcile::tests::explain_reports_blocking_condition_per_endpoint ... ok
+test reconcile::tests::explain_serializes_for_ipc ... ok
+test reconcile::tests::first_pass_seeing_conditions_gone_never_unmounts ... ok
+test reconcile::tests::health_failures_below_the_threshold_keep_the_mount ... ok
+test reconcile::tests::recovery_outranks_migration ... ok
+test reconcile::tests::should_mount_but_no_endpoint_yet_is_waiting ... ok
+test reconcile::tests::unknown_dep_reads_as_down ... ok
+test reconcile::tests::unmount_when_gone_false_leaves_mount ... ok
+test reconcile::tests::world_fingerprint_changes_with_the_world ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 183 filtered out; finished in 0.04s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/lib.rs (/home/christian/Documents/dev/mountd/target/portable-daemon/debug/deps/mountd-a2b0959934fefeae)
+
+running 5 tests
+test state::tests::is_mounted_covers_suspect_but_not_recovering ... ok
+test state::tests::kinds_are_stable ... ok
+test state::tests::legacy_strings_are_reproduced_exactly ... ok
+test state::tests::note_mounted_clears_failure_bookkeeping ... ok
+test state::tests::wire_strings_keep_the_prefixes_clients_match_on ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 203 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (/home/christian/Documents/dev/mountd/target/portable-daemon/debug/deps/mountd-a2b0959934fefeae)
+
+running 3 tests
+test ops::tests::fake_busy_mount_needs_force ... ok
+test ops::tests::fake_records_calls_in_order ... ok
+test ops::tests::fake_reports_a_scripted_mount_table ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 205 filtered out; finished in 0.00s
+
+    Checking mountd-reconciler-fixture v0.4.0 (/home/christian/.local/share/agent-tmp/mountd-reconciler-_0kv0r1y)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.77s

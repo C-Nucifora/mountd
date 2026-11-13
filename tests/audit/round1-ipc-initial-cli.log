@@ -1,0 +1,32 @@
+COMMAND ["cargo", "test", "--offline", "--locked", "--manifest-path", "/home/christian/.local/share/agent-tmp/round1-ipc-bdr5rcx_/Cargo.toml", "--test", "round1_ipc_cli", "--", "--nocapture"]
+   Compiling mountd-round1-ipc-breaker-fixture v0.4.0 (/home/christian/.local/share/agent-tmp/round1-ipc-bdr5rcx_)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.69s
+     Running tests/round1_ipc_cli.rs (target/portable-daemon/debug/deps/round1_ipc_cli-659d3c141a36da90)
+
+running 2 tests
+test menu_argument_shape_addresses_every_accepted_name ... CLI_MENU name="--help" action=mount exit=Some(0) request=None stdout="Force an immediate mount attempt (ignores `when`, honors probes)\n\nUsage: mountctl mount <NAME>\n\nArguments:\n  <NAME>  \n\nOptions:\n  -h, --help  Print help\n" stderr=""
+CLI_MENU name="--help" action=unmount exit=Some(0) request=None stdout="Unmount now\n\nUsage: mountctl unmount <NAME>\n\nArguments:\n  <NAME>  \n\nOptions:\n  -h, --help  Print help\n" stderr=""
+CLI_MENU name="-h" action=mount exit=Some(0) request=None stdout="Force an immediate mount attempt (ignores `when`, honors probes)\n\nUsage: mountctl mount <NAME>\n\nArguments:\n  <NAME>  \n\nOptions:\n  -h, --help  Print help\n" stderr=""
+CLI_MENU name="-h" action=unmount exit=Some(0) request=None stdout="Unmount now\n\nUsage: mountctl unmount <NAME>\n\nArguments:\n  <NAME>  \n\nOptions:\n  -h, --help  Print help\n" stderr=""
+CLI_MENU name="--" action=mount exit=Some(2) request=None stdout="" stderr="error: the following required arguments were not provided:\n  <NAME>\n\nUsage: mountctl mount <NAME>\n\nFor more information, try '--help'.\n"
+CLI_MENU name="--" action=unmount exit=Some(2) request=None stdout="" stderr="error: the following required arguments were not provided:\n  <NAME>\n\nUsage: mountctl unmount <NAME>\n\nFor more information, try '--help'.\n"
+CLI_MENU name="-archive" action=mount exit=Some(2) request=None stdout="" stderr="error: unexpected argument '-a' found\n\n  tip: to pass '-a' as a value, use '-- -a'\n\nUsage: mountctl mount <NAME>\n\nFor more information, try '--help'.\n"
+CLI_MENU name="-archive" action=unmount exit=Some(2) request=None stdout="" stderr="error: unexpected argument '-a' found\n\n  tip: to pass '-a' as a value, use '-- -a'\n\nUsage: mountctl unmount <NAME>\n\nFor more information, try '--help'.\n"
+
+thread 'menu_argument_shape_addresses_every_accepted_name' (1140323) panicked at tests/round1_ipc_cli.rs:57:5:
+accepted names never reached IPC: ["mount --help", "unmount --help", "mount -h", "unmount -h", "mount --", "unmount --", "mount -archive", "unmount -archive"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+test option_terminator_preserves_config_names ... CLI_TERMINATOR names=7 exact_requests=7
+ok
+
+failures:
+
+failures:
+    menu_argument_shape_addresses_every_accepted_name
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.99s
+
+error: test failed, to rerun pass `--test round1_ipc_cli`
+
+CARGO_EXIT=101

@@ -1,0 +1,43 @@
+COMMAND python3 AST parse tests/audit/round1-ipc-breaker.py
+PASS Python AST
+COMMAND ['rustfmt', '--edition', '2021', '--check', 'tests/audit/round1-ipc-unit.rs', 'tests/audit/round1-ipc-cli.rs']
+PASS Rust formatting
+PASS add-file whitespace checks
+PASS inspected production sources match a66778e
+PASS baseline is ancestor of current HEAD
+PASS both owned temporary crates removed; Cargo and test processes returned; all CLI calls awaited their exit
+Cargo.toml: OK
+Cargo.lock: OK
+src/config.rs: OK
+src/ipc.rs: OK
+src/bin/mountctl.rs: OK
+src/reconcile.rs: OK
+src/probe.rs: OK
+src/wol.rs: OK
+src/mountcmd.rs: OK
+tests/portable-ipc-config.py: OK
+menubar/Sources/main.swift: OK
+menubar/Sources/Command.swift: OK
+tests/audit/round1-ipc-breaker.py: OK
+tests/audit/round1-ipc-unit.rs: OK
+tests/audit/round1-ipc-cli.rs: OK
+docs/audit/round1-ipc-breaker.md: OK
+PASS source/fixture manifest
+Report metadata refreshed to acknowledge concurrent engine edit; test files and inspected fixture inputs unchanged.
+Cargo.toml: OK
+Cargo.lock: OK
+src/config.rs: OK
+src/ipc.rs: OK
+src/bin/mountctl.rs: OK
+src/reconcile.rs: OK
+src/probe.rs: OK
+src/wol.rs: OK
+src/mountcmd.rs: OK
+tests/portable-ipc-config.py: OK
+menubar/Sources/main.swift: OK
+menubar/Sources/Command.swift: OK
+tests/audit/round1-ipc-breaker.py: OK
+tests/audit/round1-ipc-unit.rs: OK
+tests/audit/round1-ipc-cli.rs: OK
+docs/audit/round1-ipc-breaker.md: OK
+PASS refreshed artifact hashes and reverse patch check

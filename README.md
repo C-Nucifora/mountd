@@ -61,8 +61,11 @@ Existing tools miss one or more of these:
 - **Clean unmount before sleep** — IOKit power notifications, bounded by
   `sleep_unmount_budget_secs`; the acknowledgement is always sent, so a wedged
   share can never hold the system awake.
-- Fixed user-owned mountpoints under `mount_root` (default `~/mnt`) — no
-  `/Volumes/share-1` drift.
+- Fixed user-owned mountpoints under `mount_root` (default `~/mnt`).
+  Mountpoint paths must use the filesystem's stored spelling. Possible case or
+  Unicode aliases and nesting are rejected conservatively, including on
+  case-sensitive volumes. Paths must not contain symlinks or sit below another network
+  mount. Path comparison never resolves filesystem links during reconciliation.
 
 ## Install
 
@@ -116,6 +119,15 @@ Semantics:
 - `deps` / `requires` decide when an attempt may *start*.
 - Endpoint order plus the probe gate decide *how*. The gate defaults to the
   protocol's service port (`tcp:445` for SMB, `tcp:2049` for NFS).
+- Custom `options` add to the safe defaults. Background retries, hard mounts,
+  UDP, endpoint or address-family selectors such as `localhost`, `proto`,
+  `netid` and `inet6`, and overrides of the safety options are rejected. NFS `port=N` requires
+  a matching `tcp:N` gate; SMB uses port 445. Options such as `vers=4,ro` remain
+  available. A previously accepted config that disables these safeguards now
+  fails validation rather than silently bypassing probe or timeout guarantees.
+- `sleep_unmount_budget_secs` accepts 0 through 20 seconds. The power callback
+  has a separate 25-second ceiling and waits for the engine's completion signal,
+  so reloading the cleanup budget cannot leave a stale callback timeout.
 - `mountctl reload` re-validates before swapping: a bad file is reported and
   the running config is kept. Removing a mount from the config drops the
   daemon's state for it but leaves any existing volume mounted — the config
@@ -146,10 +158,12 @@ mount succeeds as nobody and nothing anywhere says so. `mountctl status`
 names the reason (no Keychain item, prompt not answered, read denied). Set
 `policy.allow_passwordless` if you genuinely want anonymous mounts.
 
-Trade-off to know about: the password is visible to local `ps` for the
-lifetime of the mount attempt — bounded at 15 seconds, not merely "during
-the syscall" — and again on each retry. It is never written to disk, and is
-redacted from logs and error messages in both its encoded and raw forms.
+The password is visible to local `ps` for the lifetime of the mount helper,
+including retries. After 15 seconds the daemon requests termination and waits
+for the child to be reaped. A child stuck in a kernel operation can remain
+visible longer; the daemon retains its operation lock until cleanup finishes.
+Credentials are never written to disk. Mount errors omit helper output and
+arguments, and credential results suppress passwords in debug output.
 
 One macOS quirk worth knowing: `security -w` returns the password
 hex-encoded whenever it contains anything outside printable ASCII (an
@@ -185,8 +199,8 @@ nas-media: mounted — decision: Keep
 
 ## Menu bar app
 
-`menubar/` contains a native AppKit menu bar client (no Xcode project, no
-third-party dependencies — a single Swift file built with `swiftc`):
+`menubar/` contains a native AppKit menu bar client built with `swiftc`, with
+no Xcode project or third-party dependencies:
 
 ```sh
 cd menubar && ./build.sh install   # builds, ad-hoc signs, installs to
@@ -219,6 +233,22 @@ status item and then Finder.
 The menu bar app finds `mountctl` by checking `~/.cargo/bin`,
 `/opt/homebrew/bin`, then `/usr/local/bin` — absolute paths only, because
 launchd's `PATH` is just `/usr/bin:/bin`.
+
+Daemon shutdown stops new operations and retains the singleton lock until owned
+work drains. Its LaunchAgent uses `ExitTimeOut = 0` so launchd does not forcibly
+end that cleanup. A kernel-stuck child or filesystem call can keep shutdown
+pending. Explicit SIGKILL and operating-system teardown remain outside this
+in-process ownership guarantee. Supervision waits for the direct child and
+signals its process group on failure. It cannot prove completion of arbitrary
+descendants. Dependency commands must be trusted foreground predicates that do
+not leave background work; NFS uses the foreground `mount_nfs` helper directly.
+
+If a launchd command times out, is killed by a signal or cannot finish cleanup,
+install/uninstall reports
+an uncertain outcome. Installation retains the attempted plist and a private
+backup of the previous plist, whose path appears in the error. Settle the actual
+service state before retrying or restoring files. The control CLI keeps its
+runtime alive until its owned command cleanup finishes.
 
 ### IPC protocol
 
@@ -258,3 +288,6 @@ out of argv entirely, and per-mount bandwidth-aware endpoint scoring.
 ## License
 
 MIT
+
+Hardening findings, verification logs and native acceptance requirements are
+recorded in [the audit handoff](docs/audit/README.md).

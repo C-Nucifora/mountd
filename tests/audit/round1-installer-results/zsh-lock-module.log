@@ -1,0 +1,3 @@
+$ zsh -fc 'zmodload zsh/system && zsystem supports flock'
+
+exit: 0; expected: 0; elapsed: 0.00s

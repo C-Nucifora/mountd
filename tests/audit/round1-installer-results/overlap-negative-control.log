@@ -1,0 +1,14 @@
+$ env MOUNTD_AUDIT_DISABLE_LOCKS=1 python3 tests/audit/round1-installer-overlap.py
+Traceback (most recent call last):
+  File "/home/christian/Documents/dev/mountd/tests/audit/round1-installer-overlap.py", line 189, in <module>
+    exec(compile(setup + scenario, str(fixture), "exec"), {"__file__": str(fixture)})
+    ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/christian/Documents/dev/mountd/menubar/test-build.py", line 230, in <module>
+  File "/home/christian/Documents/dev/mountd/menubar/test-build.py", line 205, in reject
+    state_dir.rename(target)
+               ~~~~~^^^^^^^^
+AssertionError: overlapping contender returned success: built: build/Mountd Menu Bar.app
+installed: /home/christian/.local/share/agent-tmp/mountd-install-fixture-6ys4t25o/synthetic & <user>/Applications/Mountd Menu Bar.app (login item via org.mountd.menubar)
+
+
+exit: 1; expected: 1; elapsed: 2.29s

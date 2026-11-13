@@ -1,0 +1,4 @@
+$ python3 menubar/test-build.py
+synthetic install, update, rollback, XML and config fixtures passed
+
+exit: 0; expected: 0; elapsed: 12.88s

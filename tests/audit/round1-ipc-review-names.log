@@ -1,0 +1,13 @@
+SOURCE_SHA256 {"Cargo.toml": "96600607dafc9fdf9131da60b851787f9611fcd38f41b040334ae838a4da1d3c", "Cargo.lock": "6408d5a07ea8c80acd23da7efcdeff9165c474625964420ed1fd2abc85cec3e3", "src/bin/mountctl.rs": "847874fe02ccaa8b389f26337b436719c75513ede147f6a219ecbfb61fd49926", "menubar/Sources/main.swift": "4fc16d6e0d388e1cee45421f434169c6ebddb4986122b33b1dcc908b005dfa85", "src/config.rs": "d8c0c95ae6ff5f0f96dd145bce6f076f0119df01b1a0666113bd924669a78094", "src/ipc.rs": "43817dfc986479a95842ee3886b2ed8a6e12d3d3f9bff77733353e8dfef8b7a4", "src/reconcile.rs": "82ef9d2cb2c0deff6a118577c3e3a9f6c400893fe8eaf8e5268df6495b4c0665", "src/probe.rs": "b354479382cfe327529f7e1527ecf5f6b29a4632f17ab7c7edc0b1f57f8eacc5", "src/wol.rs": "136eaa29ea9b0af777cd7d86239765a5e7f836a0aa88a7aefdf4ffaedc466bb0", "src/mountcmd.rs": "5ec31492c6a9b23dd06fca046db8f3a39077706694ae80159765a954bf8dbef4", "tests/portable-ipc-config.py": "449b200af366915ee406371d855b10889ae247b2f8f17987a25e2c4cd5c17f3e", "tests/audit/round1-ipc-breaker.py": "d642bd92d76b9c85341daddb6d6fd5dc6d1dd58dc6be41198ec0569683ad270b"}
+COMMAND ["cargo", "test", "--offline", "--locked", "--manifest-path", "/home/christian/.local/share/agent-tmp/r1-review-iere7dq_/Cargo.toml", "--lib", "round1_review::names", "--", "--nocapture"]
+   Compiling mountd-round1-ipc-independent-review-fixture v0.4.0 (/home/christian/.local/share/agent-tmp/r1-review-iere7dq_)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.49s
+     Running unittests src/lib.rs (target/portable-daemon/debug/deps/mountd-d94319dff5069427)
+
+running 1 test
+test ipc::round1_review::names_generated_boundaries_and_policy ... GENERATED seeds=8 boundary_cases=24 status_roundtrips=16 named_roundtrips=48 controls_rejected=65 empty_whitespace_rejected=6 accepted_edges=7
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 106 filtered out; finished in 1.65s
+
+CARGO_EXIT=0 ELAPSED=12.20

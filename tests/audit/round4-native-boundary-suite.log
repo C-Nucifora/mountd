@@ -1,0 +1,44 @@
+source_sha256 aab40c5d1ef589b85e8ee525e961ba8a66c6f26a0fae9a6e74b3e5828ef93a21 src/mtab.rs
+source_sha256 80425f61482d8c53acfcb0a1f6a46411672d4f47bd05d70fe736919e52e601e0 src/power.rs
+source_sha256 6408d5a07ea8c80acd23da7efcdeff9165c474625964420ed1fd2abc85cec3e3 Cargo.lock
+source_sha256 96600607dafc9fdf9131da60b851787f9611fcd38f41b040334ae838a4da1d3c Cargo.toml
+extraction cstr_field offset 434 bytes 230 sha256 9428e658152720da78548e253c39ff851e2003f5aca7fad7d9a942a72999017f
+extraction PowerEvent offset 957 bytes 335 sha256 9360ae4da6cae81bb9ef89d057650f98f7f5fb336226427cf31a78959bef5949
+extraction MAX_ACK_WAIT offset 2510 bytes 57 sha256 5638a15b530ee97a382ec89c02efd75b28fe46f433b5db7aa69a40eeba636c08
+extraction ack_helpers offset 4565 bytes 1316 sha256 945abdc493294d2d674a14058d09579307117b5222e3aeb2a822d74296afb600
+fixture_sha256 ea89362e64af76ab08b30602b6396262d64cfdca02c5f6fda95886dadb506148 /home/christian/Documents/dev/mountd/tests/audit/round4-native-boundary.py
+fixture_sha256 b2b228c4dd4f256ff471a217d9c86f7957a7d6a6c63597d542efeeb566cf24a8 /home/christian/Documents/dev/mountd/tests/audit/round4-native-boundary.rs
+owned_scratch /home/christian/.local/share/agent-tmp/mountd-round4-native-boundary-93a5gvjd
+generated_sha256 846dac73a292e83b437dccfae01f7680e5e4e23181f3cebb767a264246eabd22 src/lib.rs
+generated_sha256 a509f1bd87b30005b7b0d831c5868fc456cbffdc93ccc0e483bddf2ab78abc5f Cargo.toml
+generated_sha256 db25b46c63669724fb6de286ac3ac60e29d72f4139003cdcfed512871f98249e Cargo.lock
+argv ["rustc", "--version"]
+rustc 1.99.1 (58cf8f9c3 2026-10-13)
+argv ["cargo", "--version"]
+cargo 1.99.1 (5f94df478 2026-08-27)
+cwd /home/christian/.local/share/agent-tmp/mountd-round4-native-boundary-93a5gvjd argv ["cargo", "test", "--offline", "--locked", "--lib", "--", "--test-threads=1", "--nocapture"]
+   Compiling libc v0.2.189
+   Compiling pin-project-lite v0.2.17
+   Compiling tokio v1.53.1
+   Compiling mountd-round4-native-boundary v0.0.0 (/home/christian/.local/share/agent-tmp/mountd-round4-native-boundary-93a5gvjd)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.51s
+     Running unittests src/lib.rs (target/debug/deps/mountd_round4_native_boundary-916747c2c2ed50cd)
+
+running 4 tests
+test round4::byte_values_and_utf8_edges_obey_first_nul ... ok
+test round4::closed_event_channel_repeats_do_not_reuse_queued_ack ... ok
+test round4::every_nul_position_and_full_fields_remain_bounded ... ok
+test round4::expired_tokens_cannot_complete_successive_notifications ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+cargo_exit 0 elapsed_seconds 4.722
+dependency_verified libc 0.2.189 3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2
+dependency_verified pin-project-lite 0.2.17 a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd
+dependency_verified tokio 1.53.1 202caea871b69668250d242070849eb495be178ed697a3e98aebce5bc81a0bed
+source_sha256 aab40c5d1ef589b85e8ee525e961ba8a66c6f26a0fae9a6e74b3e5828ef93a21 src/mtab.rs
+source_sha256 80425f61482d8c53acfcb0a1f6a46411672d4f47bd05d70fe736919e52e601e0 src/power.rs
+source_sha256 6408d5a07ea8c80acd23da7efcdeff9165c474625964420ed1fd2abc85cec3e3 Cargo.lock
+source_sha256 96600607dafc9fdf9131da60b851787f9611fcd38f41b040334ae838a4da1d3c Cargo.toml
+owned_cleanup /home/christian/.local/share/agent-tmp/mountd-round4-native-boundary-93a5gvjd removed after Cargo exited
+outer_exit=0

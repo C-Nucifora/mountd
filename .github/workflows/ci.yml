@@ -17,13 +17,19 @@ jobs:
       - name: Format
         run: cargo fmt --check
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
       - name: Test
-        run: cargo test
+        run: cargo test --locked
+        env:
+          RUST_TEST_THREADS: 1
       # The menu bar client is a bare swiftc build with no Xcode project, so
       # nothing else in CI would ever notice it stopped compiling.
       - name: Typecheck the menu bar app
-        run: swiftc -typecheck -swift-version 5 menubar/Sources/main.swift
+        run: swiftc -typecheck -swift-version 5 menubar/Sources/main.swift menubar/Sources/Command.swift
+      - name: Test menu bar command boundaries
+        run: menubar/test-command.sh
+      - name: Test isolated installer rollback
+        run: python3 menubar/test-build.py
       - name: Build the menu bar app
         run: ./build.sh
         working-directory: menubar

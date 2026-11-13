@@ -1,0 +1,2 @@
+unit: cargo exit 101; /home/christian/Documents/dev/mountd/tests/audit/round1-ipc-unit.log
+cli: cargo exit 101; /home/christian/Documents/dev/mountd/tests/audit/round1-ipc-cli.log

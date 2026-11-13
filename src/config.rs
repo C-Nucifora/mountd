@@ -8,6 +8,9 @@ use std::str::FromStr;
 use serde::Deserialize;
 use thiserror::Error;
 
+// Shared with IPC so every validated mount name fits a named control request.
+pub(crate) const MAX_CONTROL_REQUEST_BYTES: u64 = 64 * 1024;
+
 #[derive(Debug, Error)]
 pub enum ConfigError {
     #[error("TOML parse error: {0}")]
@@ -22,6 +25,8 @@ pub enum ConfigError {
     DuplicateMount(String),
     #[error("mount `{0}` has no endpoints")]
     NoEndpoints(String),
+    #[error("invalid configuration: {0}")]
+    InvalidConfig(String),
     #[error("mount `{mount}`: {msg}")]
     Invalid { mount: String, msg: String },
     #[error("network `{network}`: {msg}")]
@@ -203,8 +208,8 @@ pub struct Defaults {
     /// How often a mounted share's endpoint is re-probed for liveness.
     #[serde(default = "default_health_interval_secs")]
     pub health_interval_secs: u64,
-    /// Total time budget for unmounting everything before the system sleeps.
-    /// The power acknowledgement is sent when this elapses regardless.
+    /// Cleanup budget before sleep, at most 20 seconds. The callback has its
+    /// own 25-second ceiling so a stalled engine cannot block acknowledgement.
     #[serde(default = "default_sleep_unmount_budget_secs")]
     pub sleep_unmount_budget_secs: u64,
 }
@@ -406,7 +411,7 @@ pub struct MountSpec {
     #[serde(default)]
     pub keychain_server: Option<String>,
     pub mountpoint: String,
-    /// Extra `-o` mount options, passed through verbatim.
+    /// Extra `-o` mount options, merged with required nonblocking defaults.
     #[serde(default)]
     pub options: Option<String>,
     #[serde(default)]
@@ -469,7 +474,7 @@ impl Config {
     fn resolve_mountpoints(&mut self) {
         let root = self.defaults.mount_root.trim_end_matches('/').to_string();
         for m in &mut self.mounts {
-            if !m.mountpoint.contains('/') && !m.mountpoint.is_empty() {
+            if !m.mountpoint.contains('/') && !m.mountpoint.is_empty() && m.mountpoint != "~" {
                 m.mountpoint = format!("{}/{}", root, m.mountpoint);
             }
         }
@@ -496,8 +501,101 @@ impl Config {
     }
 
     fn validate(&self) -> Result<(), ConfigError> {
+        let d = &self.defaults;
+        for (name, value, min, max) in [
+            ("probe_timeout_ms", d.probe_timeout_ms, 1, 120_000),
+            ("poll_interval_secs", d.poll_interval_secs, 1, 86_400),
+            ("debounce_secs", d.debounce_secs, 0, 86_400),
+            ("wake_settle_secs", d.wake_settle_secs, 0, 86_400),
+            ("health_interval_secs", d.health_interval_secs, 0, 86_400),
+            (
+                "sleep_unmount_budget_secs",
+                d.sleep_unmount_budget_secs,
+                0,
+                20,
+            ),
+        ] {
+            if !(min..=max).contains(&value) {
+                return Err(ConfigError::InvalidConfig(format!(
+                    "defaults.{name} must be between {min} and {max}"
+                )));
+            }
+        }
+        let root = &d.mount_root;
+        if !(root.starts_with('/') || root == "~" || root.starts_with("~/"))
+            || root.contains('\0')
+            || root.split('/').any(|p| p == "." || p == "..")
+        {
+            return Err(ConfigError::InvalidConfig(
+                "mount_root must be absolute or start with ~/ and contain no dot components or NUL"
+                    .into(),
+            ));
+        }
+        for (name, dep) in &self.deps {
+            if dep.cmd.trim().is_empty()
+                || dep.cmd.contains('\0')
+                || dep.args.iter().any(|a| a.contains('\0'))
+                || dep.timeout_secs == 0
+                || dep.timeout_secs > 120
+            {
+                return Err(ConfigError::InvalidConfig(format!("dep `{name}` requires a nonempty command, NUL-free arguments and timeout_secs between 1 and 120")));
+            }
+            if dep.equals.is_some() && dep.json_path.is_none() {
+                return Err(ConfigError::InvalidConfig(format!(
+                    "dep `{name}`: equals requires json_path"
+                )));
+            }
+        }
         let mut seen = std::collections::BTreeSet::new();
         for m in &self.mounts {
+            let invalid = |msg: &str| ConfigError::Invalid {
+                mount: m.name.clone(),
+                msg: msg.into(),
+            };
+            if m.name.trim().is_empty() || m.name.chars().any(char::is_control) {
+                return Err(invalid(
+                    "name must be nonempty and contain no control characters",
+                ));
+            }
+            // Controls are forbidden above; only quotes and backslashes expand in JSON.
+            let name_bytes = m.name.len()
+                + m.name
+                    .bytes()
+                    .filter(|&b| matches!(b, b'"' | b'\\'))
+                    .count();
+            // Unmount and explain have the longest named-command envelopes.
+            let envelope = br#"{"cmd":"unmount","name":""}"#.len() + 1;
+            if name_bytes > MAX_CONTROL_REQUEST_BYTES as usize - envelope {
+                return Err(ConfigError::InvalidConfig(
+                    "mount name is too long for a control request after JSON encoding".into(),
+                ));
+            }
+            if m.policy.unmount_grace_secs > 86_400
+                || m.policy.health_failures == 0
+                || m.policy.migrate_confirmations == 0
+            {
+                return Err(invalid("unmount_grace_secs must be at most 86400 and health_failures and migrate_confirmations must be positive"));
+            }
+            if [
+                m.share.as_deref(),
+                m.export.as_deref(),
+                m.username.as_deref(),
+                m.keychain_server.as_deref(),
+                m.options.as_deref(),
+            ]
+            .into_iter()
+            .flatten()
+            .any(|s| s.is_empty() || s.contains('\0'))
+            {
+                return Err(invalid(
+                    "optional mount strings must be nonempty and NUL-free when supplied",
+                ));
+            }
+            if m.protocol == Protocol::Nfs
+                && m.export.as_deref().is_some_and(|s| !s.starts_with('/'))
+            {
+                return Err(invalid("NFS export must be absolute"));
+            }
             if !seen.insert(m.name.clone()) {
                 return Err(ConfigError::DuplicateMount(m.name.clone()));
             }
@@ -519,10 +617,30 @@ impl Config {
                 }
                 _ => {}
             }
+            crate::mountcmd::validated_options(m).map_err(|error| invalid(&error.to_string()))?;
             for r in m.when.any_of.iter().chain(&m.when.all_of) {
                 self.check_ref(&m.name, r)?;
             }
             for ep in &m.endpoints {
+                if ep.probe_timeout_ms.is_some_and(|v| v == 0 || v > 120_000)
+                    || ep.wol_wait_secs > 86_400
+                {
+                    return Err(invalid("endpoint probe_timeout_ms must be between 1 and 120000 and wol_wait_secs at most 86400"));
+                }
+                // A probe and the mount command must identify the same host.
+                if ep.address.is_empty()
+                    || ep.address.chars().any(|c| {
+                        c.is_whitespace()
+                            || c.is_control()
+                            || matches!(c, '/' | '\\' | '@' | '?' | '#' | '%' | '[' | ']')
+                    })
+                    || (ep.address.contains(':')
+                        && ep.address.parse::<std::net::Ipv6Addr>().is_err())
+                {
+                    return Err(invalid(
+                        "endpoint address must be a bare hostname or IP address",
+                    ));
+                }
                 if let Some(r) = &ep.only_if {
                     self.check_ref(&m.name, r)?;
                 }
@@ -539,6 +657,9 @@ impl Config {
                     }
                 }
                 if let Some(wol) = &ep.wake_on_lan {
+                    if wol.port == 0 {
+                        return Err(invalid("wake_on_lan port must be nonzero"));
+                    }
                     if normalize_mac(&wol.mac).is_none() {
                         return Err(ConfigError::Invalid {
                             mount: m.name.clone(),
@@ -583,6 +704,23 @@ impl Config {
             return Err(ConfigError::Invalid {
                 mount: m.name.clone(),
                 msg: "mountpoint is empty".into(),
+            });
+        }
+        if mp.split('/').any(|part| part == ".." || part == ".") || mp.contains('\0') {
+            return Err(ConfigError::Invalid {
+                mount: m.name.clone(),
+                msg: "mountpoint must not contain dot components or NUL".into(),
+            });
+        }
+        let normalized = crate::mountcmd::normalize_mountpoint(mp);
+        if normalized == std::path::Path::new("/")
+            || dirs::home_dir().is_some_and(|home| normalized == home)
+            || mp.trim_end_matches('/').is_empty()
+            || mp.trim_end_matches('/') == "~"
+        {
+            return Err(ConfigError::Invalid {
+                mount: m.name.clone(),
+                msg: "mountpoint must not cover the filesystem root or home directory".into(),
             });
         }
         if !(mp.starts_with('/') || mp == "~" || mp.starts_with("~/")) {
@@ -640,7 +778,10 @@ impl Config {
             for j in (i + 1)..paths.len() {
                 let (a, pa) = &paths[i];
                 let (b, pb) = &paths[j];
-                if pa == pb {
+                if crate::mountcmd::paths_may_alias(
+                    std::path::Path::new(pa),
+                    std::path::Path::new(pb),
+                ) {
                     return Err(ConfigError::MountpointCollision {
                         a: a.clone(),
                         b: b.clone(),
@@ -671,9 +812,10 @@ fn nested_pair<'a>(
     pb: &'a str,
 ) -> Option<(&'a str, &'a str, &'a str, &'a str)> {
     let is_ancestor = |outer: &str, inner: &str| {
-        inner.len() > outer.len()
-            && inner.starts_with(outer)
-            && inner.as_bytes().get(outer.len()) == Some(&b'/')
+        let outer = std::path::Path::new(outer);
+        let inner = std::path::Path::new(inner);
+        inner.components().count() > outer.components().count()
+            && crate::mountcmd::path_may_be_beneath(inner, outer)
     };
     if is_ancestor(pa, pb) {
         Some((a, pa, b, pb))
@@ -739,6 +881,87 @@ options    = "soft,intr,deadtimeout=60,retrycnt=0,nfc,tcp"
   address  = "100.64.0.11"
   requires = "dep:tailscale"
 "#;
+
+    #[test]
+    fn rejects_mountpoint_case_and_unicode_aliases() {
+        for (a, b) in [
+            ("/local/NAS", "/local/nas"),
+            ("/local/NAS", "/LOCAL/nas/child"),
+            ("/local/café", "/local/cafe\u{301}"),
+        ] {
+            let mut cfg = Config::from_toml_str(EXAMPLE).unwrap();
+            cfg.mounts[0].mountpoint = a.into();
+            cfg.mounts[1].mountpoint = b.into();
+            assert!(cfg.validate().is_err(), "{a} and {b}");
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_timers_and_unsafe_mount_values() {
+        for (from, to) in [
+            ("probe_timeout_ms = 1500", "probe_timeout_ms = 0"),
+            ("debounce_secs = 3", "debounce_secs = 9223372036854775807"),
+            (
+                "mountpoint = \"~/mnt/nas-media\"",
+                "mountpoint = \"/tmp/../mnt/share\"",
+            ),
+            ("mountpoint = \"~/mnt/nas-media\"", "mountpoint = \"/\""),
+            ("share      = \"media\"", "share      = \"\""),
+            ("address = \"192.168.1.5\"", "address = \"server/share\""),
+            ("probe_timeout_ms = 4000", "probe_timeout_ms = 0"),
+        ] {
+            assert!(EXAMPLE.contains(from), "{from}");
+            assert!(
+                Config::from_toml_str(&EXAMPLE.replace(from, to)).is_err(),
+                "accepted {to}"
+            );
+        }
+        assert!(Config::from_toml_str("[defaults]\nmount_root = \"\"").is_err());
+        assert!(Config::from_toml_str("[deps.x]\ncmd = \"fake\"\ntimeout_secs = 0").is_err());
+    }
+
+    #[test]
+    fn rejects_home_mountpoints_and_ignored_dependency_comparisons() {
+        for mountpoint in [
+            "~".to_string(),
+            "~/".into(),
+            dirs::home_dir().unwrap().display().to_string(),
+        ] {
+            let bad = EXAMPLE.replace("~/mnt/nas-media", &mountpoint);
+            assert!(
+                Config::from_toml_str(&bad).is_err(),
+                "accepted {mountpoint}"
+            );
+        }
+        assert!(Config::from_toml_str("[deps.x]\ncmd = \"fake\"\nequals = \"running\"").is_err());
+    }
+
+    #[test]
+    fn config_rejects_mount_options_that_escape_the_probe_and_timeout_contract() {
+        let old = "options    = \"soft,intr,deadtimeout=60,retrycnt=0,nfc,tcp\"";
+        for options in [
+            "bg,hard",
+            "udp",
+            "proto=udp6",
+            "localhost",
+            "inet",
+            "inet6",
+            "noinet",
+            "noinet6",
+            "netid=tcp6",
+            "proto=tcp",
+            "mntudp",
+            "port=9999",
+            "mountport=9999",
+            "nointr",
+            "retrycnt=99",
+        ] {
+            let bad = EXAMPLE.replace(old, &format!("options = {options:?}"));
+            assert!(Config::from_toml_str(&bad).is_err(), "accepted {options}");
+        }
+        let good = EXAMPLE.replace(old, "options = \"vers=4,ro\"");
+        assert!(Config::from_toml_str(&good).is_ok());
+    }
 
     #[test]
     fn parses_full_example() {
@@ -1132,6 +1355,24 @@ gateway_mac = "aa:bb:cc:dd:ee"
         assert!(p.unmount_before_sleep);
         assert_eq!(cfg.defaults.wake_settle_secs, 20);
         assert_eq!(cfg.defaults.health_interval_secs, 30);
+    }
+
+    #[test]
+    fn sleep_budget_stays_below_the_system_acknowledgement_window() {
+        for seconds in [0, 20] {
+            let config = format!("[defaults]\nsleep_unmount_budget_secs = {seconds}\n");
+            assert_eq!(
+                Config::from_toml_str(&config)
+                    .unwrap()
+                    .defaults
+                    .sleep_unmount_budget_secs,
+                seconds
+            );
+        }
+        for seconds in [21, 86_400] {
+            let config = format!("[defaults]\nsleep_unmount_budget_secs = {seconds}\n");
+            assert!(Config::from_toml_str(&config).is_err());
+        }
     }
 
     #[test]

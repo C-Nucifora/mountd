@@ -14,7 +14,7 @@ wake_settle_secs   = 20
 # talks to the server, so a dead mount still reads as mounted.
 health_interval_secs = 30
 # Total budget for unmounting everything when the system announces sleep.
-sleep_unmount_budget_secs = 8
+sleep_unmount_budget_secs = 8 # 0 through 20; callback acknowledgement is capped separately
 
 # ── Network fingerprints ─────────────────────────────────────────────
 # A network matches when a local address is inside `subnet` and, if set,

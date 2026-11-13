@@ -1,0 +1,50 @@
+PLATFORM linux zsh 5.9 (x86_64-ubuntu-linux-gnu)
+SHA256 26ea441735c84c4a12a506a809890d21b08bd80ddd7d2684ba37ea8bd1fd3a41 /home/christian/Documents/dev/mountd/menubar/build.sh
+SHA256 32575de796e3dff7c8ddaa5fe0326c863738dea8f471a67154a7d8d96c2ea37c /home/christian/Documents/dev/mountd/menubar/test-build.py
+SHA256 9babda05592d4a1339819587234dc03c45857d3143bbff75105667aa34d9cc85 /home/christian/Documents/dev/mountd/tests/audit/round1-installer-review.py
+CASE second lock refusal releases HOME ownership
+RUN ['zsh', 'build.sh'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-8aegf2ul/menubar HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-8aegf2ul/synthetic & <user> tag= holder mode= hold-build
+RUN ['zsh', 'build.sh', 'install'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-8aegf2ul/menubar HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-8aegf2ul/synthetic & <user> tag= second-lock-refused mode=
+RESULT 1256925 1 stdout= '' stderr= 'acquire_lock:zsystem:2: failed to lock file build/.menubar-build.lock: resource temporarily unavailable\nanother menu bar build/install is active, or lock unavailable: build/.menubar-build.lock\n'
+RUN ['zsh', 'build.sh', 'install'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-8aegf2ul/checkout-b HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-8aegf2ul/synthetic & <user> tag= independent-install mode=
+RESULT 1256932 0 stdout= 'built: build/Mountd Menu Bar.app\ninstalled: /home/christian/.local/share/agent-tmp/mountd-install-fixture-8aegf2ul/synthetic & <user>/Applications/Mountd Menu Bar.app (login item via org.mountd.menubar)\n' stderr= ''
+RESULT 1256917 0 stdout= 'built: build/Mountd Menu Bar.app\n' stderr= ''
+RUN ['zsh', 'build.sh', 'install'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-8aegf2ul/menubar HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-8aegf2ul/synthetic & <user> tag= retry mode=
+RESULT 1256996 0 stdout= 'built: build/Mountd Menu Bar.app\ninstalled: /home/christian/.local/share/agent-tmp/mountd-install-fixture-8aegf2ul/synthetic & <user>/Applications/Mountd Menu Bar.app (login item via org.mountd.menubar)\n' stderr= ''
+PASS second lock refusal releases HOME ownership
+CASE simultaneous cold startup from separate checkouts
+RUN ['zsh', 'build.sh', 'install'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-ptsiype6/menubar HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-ptsiype6/synthetic & <user> tag= a mode= cold
+RUN ['zsh', 'build.sh', 'install'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-ptsiype6/checkout-b HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-ptsiype6/synthetic & <user> tag= b mode= cold
+RESULT 1257042 1 stdout= '' stderr= 'acquire_lock:zsystem:2: failed to lock file /home/christian/.local/share/agent-tmp/mountd-install-fixture-ptsiype6/synthetic & <user>/Library/Application Support/mountd/menubar-install.lock: resource temporarily unavailable\nanother menu bar build/install is active, or lock unavailable: /home/christian/.local/share/agent-tmp/mountd-install-fixture-ptsiype6/synthetic & <user>/Library/Application Support/mountd/menubar-install.lock\n'
+RESULT 1257043 0 stdout= 'built: build/Mountd Menu Bar.app\ninstalled: /home/christian/.local/share/agent-tmp/mountd-install-fixture-ptsiype6/synthetic & <user>/Applications/Mountd Menu Bar.app (login item via org.mountd.menubar)\n' stderr= ''
+RUN ['zsh', 'build.sh', 'install'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-ptsiype6/menubar HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-ptsiype6/synthetic & <user> tag= retry mode=
+RESULT 1257122 0 stdout= 'built: build/Mountd Menu Bar.app\ninstalled: /home/christian/.local/share/agent-tmp/mountd-install-fixture-ptsiype6/synthetic & <user>/Applications/Mountd Menu Bar.app (login item via org.mountd.menubar)\n' stderr= ''
+PASS simultaneous cold startup from separate checkouts
+CASE home lock directory
+RUN ['zsh', 'build.sh', 'install'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-8yqs46dp/menubar HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-8yqs46dp/synthetic & <user> tag= bad-path mode=
+RESULT 1257158 1 stdout= '' stderr= 'acquire_lock:1: is a directory: /home/christian/.local/share/agent-tmp/mountd-install-fixture-8yqs46dp/synthetic & <user>/Library/Application Support/mountd/menubar-install.lock\n'
+RUN ['zsh', 'build.sh', 'install'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-8yqs46dp/menubar HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-8yqs46dp/synthetic & <user> tag= repaired mode=
+RESULT 1257163 0 stdout= 'built: build/Mountd Menu Bar.app\ninstalled: /home/christian/.local/share/agent-tmp/mountd-install-fixture-8yqs46dp/synthetic & <user>/Applications/Mountd Menu Bar.app (login item via org.mountd.menubar)\n' stderr= ''
+PASS home lock directory
+CASE home lock dangling-link
+RUN ['zsh', 'build.sh', 'install'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-dewoo6gs/menubar HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-dewoo6gs/synthetic & <user> tag= bad-path mode=
+RESULT 1257209 1 stdout= '' stderr= 'acquire_lock:1: no such file or directory: /home/christian/.local/share/agent-tmp/mountd-install-fixture-dewoo6gs/synthetic & <user>/Library/Application Support/mountd/menubar-install.lock\n'
+RUN ['zsh', 'build.sh', 'install'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-dewoo6gs/menubar HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-dewoo6gs/synthetic & <user> tag= repaired mode=
+RESULT 1257214 0 stdout= 'built: build/Mountd Menu Bar.app\ninstalled: /home/christian/.local/share/agent-tmp/mountd-install-fixture-dewoo6gs/synthetic & <user>/Applications/Mountd Menu Bar.app (login item via org.mountd.menubar)\n' stderr= ''
+PASS home lock dangling-link
+CASE build lock directory
+RUN ['zsh', 'build.sh', 'install'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-iwcjljqb/menubar HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-iwcjljqb/synthetic & <user> tag= bad-path mode=
+RESULT 1257270 1 stdout= '' stderr= 'acquire_lock:1: is a directory: build/.menubar-build.lock\n'
+RUN ['zsh', 'build.sh', 'install'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-iwcjljqb/checkout-b HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-iwcjljqb/synthetic & <user> tag= released-home-lock mode=
+RESULT 1257288 0 stdout= 'built: build/Mountd Menu Bar.app\ninstalled: /home/christian/.local/share/agent-tmp/mountd-install-fixture-iwcjljqb/synthetic & <user>/Applications/Mountd Menu Bar.app (login item via org.mountd.menubar)\n' stderr= ''
+RUN ['zsh', 'build.sh', 'install'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-iwcjljqb/menubar HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-iwcjljqb/synthetic & <user> tag= repaired mode=
+RESULT 1257324 0 stdout= 'built: build/Mountd Menu Bar.app\ninstalled: /home/christian/.local/share/agent-tmp/mountd-install-fixture-iwcjljqb/synthetic & <user>/Applications/Mountd Menu Bar.app (login item via org.mountd.menubar)\n' stderr= ''
+PASS build lock directory
+CASE build lock dangling-link
+RUN ['zsh', 'build.sh', 'install'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-30oce77p/menubar HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-30oce77p/synthetic & <user> tag= bad-path mode=
+RESULT 1257423 1 stdout= '' stderr= 'acquire_lock:1: no such file or directory: build/.menubar-build.lock\n'
+RUN ['zsh', 'build.sh', 'install'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-30oce77p/checkout-b HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-30oce77p/synthetic & <user> tag= released-home-lock mode=
+RESULT 1257465 0 stdout= 'built: build/Mountd Menu Bar.app\ninstalled: /home/christian/.local/share/agent-tmp/mountd-install-fixture-30oce77p/synthetic & <user>/Applications/Mountd Menu Bar.app (login item via org.mountd.menubar)\n' stderr= ''
+RUN ['zsh', 'build.sh', 'install'] cwd= /home/christian/.local/share/agent-tmp/mountd-install-fixture-30oce77p/menubar HOME= /home/christian/.local/share/agent-tmp/mountd-install-fixture-30oce77p/synthetic & <user> tag= repaired mode=
+RESULT 1257575 0 stdout= 'built: build/Mountd Menu Bar.app\ninstalled: /home/christian/.local/share/agent-tmp/mountd-install-fixture-30oce77p/synthetic & <user>/Applications/Mountd Menu Bar.app (login item via org.mountd.menubar)\n' stderr= ''
+PASS build lock dangling-link

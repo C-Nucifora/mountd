@@ -125,17 +125,11 @@ const QUERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 /// Run a short-lived query command, yielding its stdout, or empty on any
 /// failure or timeout.
 async fn query(program: &str, args: &[&str]) -> String {
-    let run = tokio::process::Command::new(program)
-        .args(args)
-        .kill_on_drop(true)
-        .output();
-    match tokio::time::timeout(QUERY_TIMEOUT, run).await {
-        Ok(Ok(out)) => String::from_utf8_lossy(&out.stdout).into_owned(),
-        Ok(Err(_)) => String::new(),
-        Err(_) => {
-            tracing::warn!("`{program}` timed out while reading network state");
-            String::new()
-        }
+    let mut command = tokio::process::Command::new(program);
+    command.args(args);
+    match crate::mountcmd::command_output(command, QUERY_TIMEOUT, std::sync::Arc::new(())).await {
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).into_owned(),
+        _ => String::new(),
     }
 }
 
@@ -181,6 +175,13 @@ mod tests {
             local_addrs: vec![(addr.parse().unwrap(), 24)],
             utun_present: false,
         }
+    }
+
+    #[tokio::test]
+    async fn failed_query_cannot_supply_network_identity() {
+        assert!(query("/bin/sh", &["-c", "echo gateway: 192.0.2.1; exit 1"])
+            .await
+            .is_empty());
     }
 
     #[test]

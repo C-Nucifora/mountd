@@ -1,0 +1,22 @@
+COMMAND ["cargo", "test", "--offline", "--locked", "--manifest-path", "/home/christian/.local/share/agent-tmp/round1-ipc-hq1d8uta/Cargo.toml", "--test", "round1_ipc_cli", "--", "--nocapture"]
+   Compiling mountd-round1-ipc-breaker-fixture v0.4.0 (/home/christian/.local/share/agent-tmp/round1-ipc-hq1d8uta)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.76s
+     Running tests/round1_ipc_cli.rs (target/portable-daemon/debug/deps/round1_ipc_cli-659d3c141a36da90)
+
+running 2 tests
+test menu_argument_shape_addresses_every_accepted_name ... CLI_MENU name="--help" action=mount exit=Some(0) request=Some(Mount { name: "--help" }) stdout="mounted --help\n" stderr=""
+CLI_MENU name="--help" action=unmount exit=Some(0) request=Some(Unmount { name: "--help" }) stdout="unmounted --help\n" stderr=""
+CLI_MENU name="-h" action=mount exit=Some(0) request=Some(Mount { name: "-h" }) stdout="mounted -h\n" stderr=""
+CLI_MENU name="-h" action=unmount exit=Some(0) request=Some(Unmount { name: "-h" }) stdout="unmounted -h\n" stderr=""
+CLI_MENU name="--" action=mount exit=Some(0) request=Some(Mount { name: "--" }) stdout="mounted --\n" stderr=""
+CLI_MENU name="--" action=unmount exit=Some(0) request=Some(Unmount { name: "--" }) stdout="unmounted --\n" stderr=""
+CLI_MENU name="-archive" action=mount exit=Some(0) request=Some(Mount { name: "-archive" }) stdout="mounted -archive\n" stderr=""
+CLI_MENU name="-archive" action=unmount exit=Some(0) request=Some(Unmount { name: "-archive" }) stdout="unmounted -archive\n" stderr=""
+ok
+test option_terminator_preserves_config_names ... CLI_TERMINATOR names=7 exact_requests=7
+ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+
+CARGO_EXIT=0

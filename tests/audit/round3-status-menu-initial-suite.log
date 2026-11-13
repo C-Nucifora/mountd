@@ -1,0 +1,48 @@
+526b411f7e136c1a1a01bbf46882673135cb07a2980fcdeadf74707250a2d367 src/state.rs
+5d60f728b38039f1cbc3ec525fe8e657efbe1699761995dbb43bb5e58e121dd7 src/engine.rs
+43817dfc986479a95842ee3886b2ed8a6e12d3d3f9bff77733353e8dfef8b7a4 src/ipc.rs
+82ef9d2cb2c0deff6a118577c3e3a9f6c400893fe8eaf8e5268df6495b4c0665 src/reconcile.rs
+847874fe02ccaa8b389f26337b436719c75513ede147f6a219ecbfb61fd49926 src/bin/mountctl.rs
+4fc16d6e0d388e1cee45421f434169c6ebddb4986122b33b1dcc908b005dfa85 menubar/Sources/main.swift
+extract state c56400e7e5c906a5ca74227e48bf6a35b2fb42848946f66fea7a94554b03cb06
+extract status_type 9ecbc3631d08f1a9ff78ba5840487254b042c59ef121b47992a5da52dae892cc
+extract status_method f3a7aa84fe95fd9ef1cef86df865814d52c42fa6a498b03474e36bd92c0a1626
+extract response a3bbb546c9fa08446c42493b3b601f93a9eca6666f5aa26df4eb0800033eee3f
+extract explanation_types 7cd89b76b55fdabb145b69374eb484d3569d9604416acc922b2d437f54e1d821
+extract cli_error_guard 738b829265988ed49a6120ad0b4bb29c7a6dbf92f1d632f1d81fb900e79478e2
+extract cli_required_status 6d5d3abbc95cd909882e274e19c17e21a0656d442ea8e8c276663085cf1829b2
+fixture 81e07029caccd841e5ac7902907f851b3c552d9b8adbee6bf9e78144347cd5c0
+generator 64b440fc66b88fa12bd43c53ddef8ab376baf27aa6ff643c87b5e3de125e95ac
+scratch /home/christian/.local/share/agent-tmp/mountd-round3-status-menu-mwth3w1c
+generated ef39f80ee2e2c154f0fafdfcc5537e0f7829b65271b638e0175b87375350ee6f
+command cargo test --offline --manifest-path /home/christian/.local/share/agent-tmp/mountd-round3-status-menu-mwth3w1c/Cargo.toml --lib -- --test-threads=1 --nocapture
+     Locking 16 packages to highest compatible versions
+   Compiling syn v3.0.3
+   Compiling serde_derive v1.0.229
+   Compiling serde_json v1.0.154
+   Compiling tokio v1.54.1
+   Compiling serde v1.0.229
+   Compiling mountd-round3-status-menu-review-fixture v0.0.0 (/home/christian/.local/share/agent-tmp/mountd-round3-status-menu-mwth3w1c)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.57s
+     Running unittests src/lib.rs (target/portable-daemon/debug/deps/mountd_round3_status_menu_review_fixture-b0d4bec963c37ebd)
+
+running 6 tests
+test review::empty_success_is_distinct_from_missing_status_and_daemon_failure ... 11 envelope distinctions, including failure with a plausible status payload
+ok
+test review::every_lifecycle_variant_survives_status_envelope_and_cli_projection ... 16 lifecycle cases, exact display/kind, six-field envelope/array preservation
+ok
+test review::invalid_rows_reject_the_whole_array_and_do_not_poison_later_decodes ... 62 mixed-array refusals with subsequent valid decode; 7 malformed array documents
+ok
+test review::legacy_omissions_and_nullable_details_preserve_rows ... 8 omission combinations and 2 nullable detail cases
+ok
+test review::status_projection_keeps_config_order_and_returns_detached_values ... orphan omitted, config order/defaults retained, old Rust snapshot detached, empty config empty
+ok
+test review::unknown_discriminants_and_escaped_payloads_survive_without_reinterpretation ... 4 discriminant cases with Unicode/escaping and additive field compatibility
+ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+cargo_exit 0
+source_identity_after=pass
+elapsed_seconds 13.73
+outer_exit=0

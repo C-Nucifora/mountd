@@ -1,0 +1,2 @@
+Reproduced: signalled bootstrap restored previous files and submitted another bootstrap while pending
+The mutation affected only the disposable fixture; production source is unchanged

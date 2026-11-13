@@ -1,0 +1,65 @@
+   Compiling mountd-negative-fixture v0.4.0 (/home/christian/.local/share/agent-tmp/mountd-reconciler-qlpxkzwf)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 19.64s
+     Running unittests src/lib.rs (/home/christian/Documents/dev/mountd/target/portable-daemon/debug/deps/mountd-8512876ed5c7848e)
+
+running 7 tests
+test config::tests::review_negative_control_config_rejects_mount_options_that_escape_the_probe_and_timeout_contract ... FAILED
+test config::tests::review_negative_control_rejects_mountpoint_case_and_unicode_aliases ... FAILED
+test engine::tests::review_negative_control_cancelled_credentials_retain_claim_and_reload_guard_until_reap ... FAILED
+test engine::tests::review_negative_control_network_identity_is_refreshed_after_dependencies ... FAILED
+test engine::tests::review_negative_control_preparation_is_followed_by_sleep_shutdown_and_probe_gates ... FAILED
+test launchd::tests::review_negative_control_pending_or_timed_out_mutations_cannot_be_promoted_by_a_snapshot ... FAILED
+test probe::tests::review_negative_control_drain_waits_for_aborted_nested_producer_before_child_registration ... FAILED
+
+failures:
+
+---- config::tests::review_negative_control_config_rejects_mount_options_that_escape_the_probe_and_timeout_contract stdout ----
+
+thread 'config::tests::review_negative_control_config_rejects_mount_options_that_escape_the_probe_and_timeout_contract' (755273) panicked at src/config.rs:944:13:
+accepted localhost
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- config::tests::review_negative_control_rejects_mountpoint_case_and_unicode_aliases stdout ----
+
+thread 'config::tests::review_negative_control_rejects_mountpoint_case_and_unicode_aliases' (755274) panicked at src/config.rs:879:13:
+/local/NAS and /local/nas
+
+---- engine::tests::review_negative_control_cancelled_credentials_retain_claim_and_reload_guard_until_reap stdout ----
+
+thread 'engine::tests::review_negative_control_cancelled_credentials_retain_claim_and_reload_guard_until_reap' (755275) panicked at src/engine.rs:1191:9:
+assertion failed: eng.claim("nas").await.is_none()
+
+---- engine::tests::review_negative_control_network_identity_is_refreshed_after_dependencies stdout ----
+
+thread 'engine::tests::review_negative_control_network_identity_is_refreshed_after_dependencies' (755369) panicked at src/engine.rs:1297:13:
+forced=false
+
+---- engine::tests::review_negative_control_preparation_is_followed_by_sleep_shutdown_and_probe_gates stdout ----
+
+thread 'engine::tests::review_negative_control_preparation_is_followed_by_sleep_shutdown_and_probe_gates' (755436) panicked at src/engine.rs:1238:13:
+sleep
+
+---- launchd::tests::review_negative_control_pending_or_timed_out_mutations_cannot_be_promoted_by_a_snapshot stdout ----
+
+thread 'launchd::tests::review_negative_control_pending_or_timed_out_mutations_cannot_be_promoted_by_a_snapshot' (755451) panicked at src/launchd.rs:328:28:
+called `Result::unwrap_err()` on an `Ok` value: ()
+
+---- probe::tests::review_negative_control_drain_waits_for_aborted_nested_producer_before_child_registration stdout ----
+
+thread 'probe::tests::review_negative_control_drain_waits_for_aborted_nested_producer_before_child_registration' (755452) panicked at src/probe.rs:181:9:
+drain escaped a still-polling producer
+
+
+failures:
+    config::tests::review_negative_control_config_rejects_mount_options_that_escape_the_probe_and_timeout_contract
+    config::tests::review_negative_control_rejects_mountpoint_case_and_unicode_aliases
+    engine::tests::review_negative_control_cancelled_credentials_retain_claim_and_reload_guard_until_reap
+    engine::tests::review_negative_control_network_identity_is_refreshed_after_dependencies
+    engine::tests::review_negative_control_preparation_is_followed_by_sleep_shutdown_and_probe_gates
+    launchd::tests::review_negative_control_pending_or_timed_out_mutations_cannot_be_promoted_by_a_snapshot
+    probe::tests::review_negative_control_drain_waits_for_aborted_nested_producer_before_child_registration
+
+test result: FAILED. 0 passed; 7 failed; 0 ignored; 0 measured; 201 filtered out; finished in 0.78s
+
+error: test failed, to rerun pass `--lib`
+All seven negative controls failed as expected; production files were unchanged

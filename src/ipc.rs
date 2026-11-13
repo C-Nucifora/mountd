@@ -1,17 +1,20 @@
 //! Unix-socket IPC between the daemon and `mountctl`: one newline-delimited
 //! JSON request per connection, one JSON response back.
 
-use std::os::unix::fs::PermissionsExt;
+use std::fs::{File, OpenOptions};
+use std::os::fd::AsRawFd;
+use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tracing::warn;
 
+use crate::config::MAX_CONTROL_REQUEST_BYTES as MAX_REQUEST_BYTES;
 use crate::engine::{Engine, MountStatus};
 
 /// Socket path: `~/Library/Application Support/mountd/mountd.sock`.
@@ -105,65 +108,170 @@ pub async fn handle_request(engine: &Engine, req: Request) -> Response {
     }
 }
 
-/// A request line longer than this is a bug or a stuck pipe, not a command.
-const MAX_REQUEST_BYTES: u64 = 64 * 1024;
 /// A client that connects and then says nothing must not pin a task and an fd
 /// forever; fd exhaustion is what turns a stuck client into a dead server.
 const CONN_TIMEOUT: Duration = Duration::from_secs(10);
 
-async fn serve_conn(engine: Arc<Engine>, stream: UnixStream) -> Result<()> {
-    let (r, mut w) = stream.into_split();
+// A capped reader must distinguish a complete frame from EOF or a cap hit.
+async fn read_frame<R: tokio::io::AsyncRead + Unpin>(reader: R, cap: u64) -> Result<String> {
     let mut line = String::new();
-    BufReader::new(r.take(MAX_REQUEST_BYTES))
+    BufReader::new(reader.take(cap + 1))
         .read_line(&mut line)
         .await?;
+    ensure!(line.len() as u64 <= cap, "IPC frame exceeds {cap} bytes");
+    ensure!(line.ends_with('\n'), "IPC frame missing newline");
+    Ok(line)
+}
+
+fn same_user(stream: &UnixStream) -> Result<()> {
+    // peer_cred uses LOCAL_PEERCRED/getpeereid on macOS and SO_PEERCRED on Linux.
+    ensure!(
+        stream.peer_cred()?.uid() == unsafe { libc::geteuid() },
+        "IPC peer belongs to another user"
+    );
+    Ok(())
+}
+
+async fn serve_conn(engine: Arc<Engine>, stream: UnixStream) -> Result<()> {
+    same_user(&stream)?;
+    let (r, mut w) = stream.into_split();
+    let line = tokio::time::timeout(CONN_TIMEOUT, read_frame(r, MAX_REQUEST_BYTES)).await??;
     let resp = match serde_json::from_str::<Request>(line.trim()) {
+        // Do not cancel a mutating engine operation at the transport deadline.
         Ok(req) => handle_request(&engine, req).await,
         Err(e) => Response::err(format!("bad request: {e}")),
     };
     let mut out = serde_json::to_string(&resp)?;
+    if out.len() as u64 >= MAX_RESPONSE_BYTES {
+        out = serde_json::to_string(&Response::err("IPC response too large"))?;
+    }
     out.push('\n');
-    w.write_all(out.as_bytes()).await?;
+    tokio::time::timeout(CONN_TIMEOUT, w.write_all(out.as_bytes())).await??;
     Ok(())
+}
+
+/// Acquire a persistent lock before considering removal of a stale socket.
+pub async fn bind_socket(path: &std::path::Path) -> Result<(UnixListener, File)> {
+    let dir = path.parent().context("socket needs a parent directory")?;
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true).mode(0o700);
+    builder.create(dir)?;
+    let meta = std::fs::symlink_metadata(dir)?;
+    ensure!(
+        meta.is_dir() && meta.uid() == unsafe { libc::geteuid() } && meta.mode() & 0o022 == 0,
+        "socket directory must be owned by this user and not writable by others"
+    );
+    // Keep other users outside even during bind's initial umask-dependent mode.
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path.with_extension("lock"))?;
+    let meta = lock.metadata()?;
+    ensure!(
+        meta.is_file()
+            && meta.uid() == unsafe { libc::geteuid() }
+            && meta.nlink() == 1
+            && meta.mode() & 0o077 == 0,
+        "unsafe IPC lock file"
+    );
+    ensure!(
+        unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0,
+        "another mountd instance owns the IPC socket"
+    );
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) => {
+            ensure!(
+                meta.file_type().is_socket() && meta.uid() == unsafe { libc::geteuid() },
+                "refusing to replace non-socket or foreign IPC path"
+            );
+            match tokio::time::timeout(CONN_TIMEOUT, UnixStream::connect(path)).await {
+                Ok(Err(e)) if e.kind() == std::io::ErrorKind::ConnectionRefused => {}
+                _ => bail!("IPC socket is active or cannot be proven stale"),
+            }
+            std::fs::remove_file(path)?;
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e.into()),
+    }
+    let listener =
+        UnixListener::bind(path).with_context(|| format!("binding {}", path.display()))?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    Ok((listener, lock))
 }
 
 /// Run the IPC server forever. Replaces any stale socket file.
 ///
-/// Only `bind` is fatal. An `accept` error — `ECONNABORTED` when a client dies
+/// Unsafe paths, an existing instance, and bind errors are fatal. An `accept` error — `ECONNABORTED` when a client dies
 /// between connect and accept, `EMFILE` under fd pressure — used to end the
 /// loop and leave the daemon alive but permanently unreachable, with every
 /// `mountctl` command reporting that it is not running.
 pub async fn serve(engine: Arc<Engine>, path: PathBuf) -> Result<()> {
-    if let Some(dir) = path.parent() {
-        tokio::fs::create_dir_all(dir).await?;
-    }
-    let _ = tokio::fs::remove_file(&path).await;
-    let listener =
-        UnixListener::bind(&path).with_context(|| format!("binding {}", path.display()))?;
+    let (listener, lock) = bind_socket(&path).await?;
+    serve_bound(engine, listener, lock).await
+}
 
-    // The socket grants full control of the daemon. ~/Library is 0700 on a
-    // modern Mac, but inheriting that is luck rather than a decision.
-    if let Err(e) = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)) {
-        warn!("could not restrict permissions on {}: {e}", path.display());
-    }
+/// Serve a socket acquired before starting reconciliation. Keep the lock alive.
+pub async fn serve_bound(engine: Arc<Engine>, listener: UnixListener, lock: File) -> Result<()> {
+    serve_bound_until(engine, listener, lock, std::future::pending()).await
+}
 
+/// Stop accepting on shutdown, then drain requests without cancelling mutations.
+/// Callers must await this future before releasing their shutdown ownership guard.
+pub async fn serve_bound_until(
+    engine: Arc<Engine>,
+    listener: UnixListener,
+    lock: File,
+    shutdown: impl std::future::Future<Output = ()>,
+) -> Result<()> {
+    let lock = Arc::new(lock);
+    let mut connections = tokio::task::JoinSet::new();
+    tokio::pin!(shutdown);
     loop {
-        let stream = match listener.accept().await {
-            Ok((stream, _)) => stream,
-            Err(e) => {
-                warn!("ipc accept failed: {e}");
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                continue;
+        tokio::select! {
+            biased;
+            _ = &mut shutdown => break,
+            result = connections.join_next(), if !connections.is_empty() => {
+                log_connection(result);
             }
-        };
-        let engine = engine.clone();
-        tokio::spawn(async move {
-            match tokio::time::timeout(CONN_TIMEOUT, serve_conn(engine, stream)).await {
-                Ok(Err(e)) => warn!("ipc connection error: {e:#}"),
-                Err(_) => warn!("ipc connection timed out"),
-                Ok(Ok(())) => {}
+            accepted = listener.accept() => {
+                let stream = match accepted {
+                    Ok((stream, _)) => stream,
+                    Err(e) => {
+                        warn!("ipc accept failed: {e}");
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        continue;
+                    }
+                };
+                if connections.len() >= 64 {
+                    drop(stream);
+                    continue;
+                }
+                let engine = engine.clone();
+                let lock = lock.clone();
+                connections.spawn(async move {
+                    let _lock = lock;
+                    serve_conn(engine, stream).await
+                });
             }
-        });
+        }
+    }
+    drop(listener);
+    while let Some(result) = connections.join_next().await {
+        log_connection(Some(result));
+    }
+    Ok(())
+}
+
+fn log_connection(result: Option<Result<Result<()>, tokio::task::JoinError>>) {
+    match result {
+        Some(Ok(Err(e))) => warn!("ipc connection error: {e:#}"),
+        Some(Err(e)) => warn!("ipc connection task failed: {e}"),
+        _ => {}
     }
 }
 
@@ -177,23 +285,33 @@ const CLIENT_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Client side: send one request, read one response.
 pub async fn client_request(path: &PathBuf, req: &Request) -> Result<Response> {
-    tokio::time::timeout(CLIENT_TIMEOUT, client_request_inner(path, req))
+    client_request_with_timeout(path, req, CLIENT_TIMEOUT).await
+}
+
+async fn client_request_with_timeout(
+    path: &PathBuf,
+    req: &Request,
+    deadline: Duration,
+) -> Result<Response> {
+    tokio::time::timeout(deadline, client_request_inner(path, req))
         .await
-        .with_context(|| format!("mountd did not respond within {CLIENT_TIMEOUT:?}"))?
+        .with_context(|| format!("mountd did not respond within {deadline:?}"))?
 }
 
 async fn client_request_inner(path: &PathBuf, req: &Request) -> Result<Response> {
     let stream = UnixStream::connect(path)
         .await
         .with_context(|| format!("connecting to {} (is mountd running?)", path.display()))?;
+    same_user(&stream)?;
     let (r, mut w) = stream.into_split();
     let mut out = serde_json::to_string(req)?;
+    ensure!(
+        (out.len() as u64) < MAX_REQUEST_BYTES,
+        "IPC request too large"
+    );
     out.push('\n');
     w.write_all(out.as_bytes()).await?;
-    let mut line = String::new();
-    BufReader::new(r.take(MAX_RESPONSE_BYTES))
-        .read_line(&mut line)
-        .await?;
+    let line = read_frame(r, MAX_RESPONSE_BYTES).await?;
     serde_json::from_str(line.trim()).context("parsing daemon response")
 }
 
@@ -205,6 +323,141 @@ mod tests {
     use super::*;
     use crate::config::Config;
     use crate::engine::Engine;
+
+    fn private_dir() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        dir
+    }
+
+    #[tokio::test]
+    async fn framing_rejects_truncation_and_oversize() {
+        assert!(read_frame(&b"{}"[..], 10)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("newline"));
+        assert!(read_frame(&b"{}   \n"[..], 5)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("exceeds"));
+        assert_eq!(read_frame(&b"{}\n"[..], 3).await.unwrap(), "{}\n");
+    }
+
+    #[tokio::test]
+    async fn singleton_and_private_permissions() {
+        let dir = private_dir();
+        let path = dir.path().join("test.sock");
+        let (listener, lock) = bind_socket(&path).await.unwrap();
+        assert_eq!(std::fs::metadata(&path).unwrap().mode() & 0o777, 0o600);
+        assert_eq!(std::fs::metadata(dir.path()).unwrap().mode() & 0o777, 0o700);
+        let inode = std::fs::metadata(&path).unwrap().ino();
+        assert!(bind_socket(&path).await.is_err());
+        assert_eq!(std::fs::metadata(&path).unwrap().ino(), inode);
+        drop(listener);
+        drop(lock);
+        let (_listener, _lock) = bind_socket(&path).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn unsafe_paths_and_live_legacy_socket_are_preserved() {
+        let dir = private_dir();
+        let path = dir.path().join("test.sock");
+        std::fs::write(&path, "keep").unwrap();
+        assert!(bind_socket(&path).await.is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "keep");
+        std::fs::remove_file(&path).unwrap();
+        let target = dir.path().join("target");
+        std::fs::write(&target, "keep").unwrap();
+        std::os::unix::fs::symlink(&target, &path).unwrap();
+        assert!(bind_socket(&path).await.is_err());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep");
+        std::fs::remove_file(&path).unwrap();
+        let _legacy = UnixListener::bind(&path).unwrap();
+        assert!(bind_socket(&path).await.is_err());
+        assert!(path.exists());
+    }
+
+    #[tokio::test]
+    async fn rejects_symlinked_parent_and_lock() {
+        let dir = private_dir();
+        let real = dir.path().join("real");
+        std::fs::create_dir(&real).unwrap();
+        let alias = dir.path().join("alias");
+        std::os::unix::fs::symlink(&real, &alias).unwrap();
+        assert!(bind_socket(&alias.join("test.sock")).await.is_err());
+        let target = dir.path().join("target");
+        std::fs::write(&target, "keep").unwrap();
+        std::os::unix::fs::symlink(&target, real.join("test.lock")).unwrap();
+        assert!(bind_socket(&real.join("test.sock")).await.is_err());
+        assert_eq!(std::fs::read_to_string(target).unwrap(), "keep");
+    }
+
+    #[tokio::test]
+    async fn client_deadline_bounds_an_idle_daemon() {
+        let dir = private_dir();
+        let path = dir.path().join("test.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        let request =
+            client_request_with_timeout(&path, &Request::Status, Duration::from_millis(50));
+        let (response, peer) = tokio::join!(request, listener.accept());
+        let _peer = peer.unwrap();
+        assert!(response
+            .unwrap_err()
+            .to_string()
+            .contains("did not respond"));
+    }
+
+    #[tokio::test]
+    async fn graceful_shutdown_drains_accepted_requests_before_unlocking() {
+        let cfg = Config::from_toml_str("").unwrap();
+        let engine = Engine::new(PathBuf::from("/nonexistent"), cfg);
+        let dir = private_dir();
+        let path = dir.path().join("test.sock");
+        let (listener, lock) = bind_socket(&path).await.unwrap();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let mut server = tokio::spawn(serve_bound_until(engine, listener, lock, async {
+            let _ = rx.await;
+        }));
+        let mut stream = UnixStream::connect(&path).await.unwrap();
+        stream.write_all(b"{\"cmd\":\"status\"}").await.unwrap();
+        // A round trip on another connection establishes that the first was accepted.
+        assert!(client_request(&path, &Request::Poke).await.unwrap().ok);
+        tx.send(()).unwrap();
+        assert!(tokio::time::timeout(Duration::from_millis(50), &mut server)
+            .await
+            .is_err());
+        assert!(bind_socket(&path).await.is_err());
+        stream.write_all(b"\n").await.unwrap();
+        let line = read_frame(&mut stream, MAX_RESPONSE_BYTES).await.unwrap();
+        assert!(serde_json::from_str::<Response>(&line).unwrap().ok);
+        tokio::time::timeout(Duration::from_secs(1), server)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let (_listener, _lock) = bind_socket(&path).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn idle_request_is_closed_at_the_transport_deadline() {
+        let cfg = Config::from_toml_str("").unwrap();
+        let engine = Engine::new(PathBuf::from("/nonexistent"), cfg);
+        let (mut client, server) = UnixStream::pair().unwrap();
+        tokio::time::timeout(CONN_TIMEOUT + Duration::from_secs(2), async {
+            let error = serve_conn(engine, server).await.unwrap_err();
+            assert!(error
+                .downcast_ref::<tokio::time::error::Elapsed>()
+                .is_some());
+            assert_eq!(
+                client.read_u8().await.unwrap_err().kind(),
+                std::io::ErrorKind::UnexpectedEof
+            );
+        })
+        .await
+        .unwrap();
+    }
 
     #[test]
     fn request_serialization_round_trip() {
@@ -240,7 +493,7 @@ mountpoint = "~/mnt/a"
         )
         .unwrap();
         let engine = Engine::new(PathBuf::from("/nonexistent"), cfg);
-        let dir = tempfile::tempdir().unwrap();
+        let dir = private_dir();
         let path = dir.path().join("test.sock");
 
         let server = tokio::spawn(serve(engine, path.clone()));
@@ -268,7 +521,7 @@ mountpoint = "~/mnt/a"
     async fn bad_request_gets_error_response() {
         let cfg = Config::from_toml_str("").unwrap();
         let engine = Engine::new(PathBuf::from("/nonexistent"), cfg);
-        let dir = tempfile::tempdir().unwrap();
+        let dir = private_dir();
         let path = dir.path().join("test.sock");
         let server = tokio::spawn(serve(engine, path.clone()));
         for _ in 0..50 {

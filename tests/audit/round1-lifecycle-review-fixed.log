@@ -1,0 +1,44 @@
+847874fe02ccaa8b389f26337b436719c75513ede147f6a219ecbfb61fd49926 /home/christian/Documents/dev/mountd/src/bin/mountctl.rs
+2ade193bd3fd5b076f0a3fa01723d4b6eefc358e2ae47b6525e9ca080692a4c8 /home/christian/Documents/dev/mountd/src/bin/mountd.rs
+d8c0c95ae6ff5f0f96dd145bce6f076f0119df01b1a0666113bd924669a78094 /home/christian/Documents/dev/mountd/src/config.rs
+bc985636127d2b7cf9217934e490ee9cf728081ffd57cce4e3a2d2cfc3446215 /home/christian/Documents/dev/mountd/src/cred.rs
+db39c3f2790dcf06a5a0521a5b1692a657cd84649c82a07e0a2d2e028f5f5cc9 /home/christian/Documents/dev/mountd/src/deps.rs
+5d60f728b38039f1cbc3ec525fe8e657efbe1699761995dbb43bb5e58e121dd7 /home/christian/Documents/dev/mountd/src/engine.rs
+dc34aeced006b4178638ba53cf011e2deaf322b361c353edc4374f84da61aee3 /home/christian/Documents/dev/mountd/src/fingerprint.rs
+43817dfc986479a95842ee3886b2ed8a6e12d3d3f9bff77733353e8dfef8b7a4 /home/christian/Documents/dev/mountd/src/ipc.rs
+9e15a7f850e200506ceca9bfb66396cb894c4f4f7274fd24dfdac8e48f1e7296 /home/christian/Documents/dev/mountd/src/launchd.rs
+e0e55024ac8e0c80ced6d10a1eb7961083dc298a10d50541f1284d71826b448e /home/christian/Documents/dev/mountd/src/lib.rs
+5ec31492c6a9b23dd06fca046db8f3a39077706694ae80159765a954bf8dbef4 /home/christian/Documents/dev/mountd/src/mountcmd.rs
+aab40c5d1ef589b85e8ee525e961ba8a66c6f26a0fae9a6e74b3e5828ef93a21 /home/christian/Documents/dev/mountd/src/mtab.rs
+1e13108279f12398c0c9b893ecf5e00543828e696e4dc7d3793b69c08481071d /home/christian/Documents/dev/mountd/src/ops.rs
+80425f61482d8c53acfcb0a1f6a46411672d4f47bd05d70fe736919e52e601e0 /home/christian/Documents/dev/mountd/src/power.rs
+b354479382cfe327529f7e1527ecf5f6b29a4632f17ab7c7edc0b1f57f8eacc5 /home/christian/Documents/dev/mountd/src/probe.rs
+82ef9d2cb2c0deff6a118577c3e3a9f6c400893fe8eaf8e5268df6495b4c0665 /home/christian/Documents/dev/mountd/src/reconcile.rs
+526b411f7e136c1a1a01bbf46882673135cb07a2980fcdeadf74707250a2d367 /home/christian/Documents/dev/mountd/src/state.rs
+d572f85ef5c96410e6fa85d67220e4da06a13b22a8eb18e377c665974d94974b /home/christian/Documents/dev/mountd/src/watcher.rs
+136eaa29ea9b0af777cd7d86239765a5e7f836a0aa88a7aefdf4ffaedc466bb0 /home/christian/Documents/dev/mountd/src/wol.rs
+96600607dafc9fdf9131da60b851787f9611fcd38f41b040334ae838a4da1d3c /home/christian/Documents/dev/mountd/Cargo.toml
+6408d5a07ea8c80acd23da7efcdeff9165c474625964420ed1fd2abc85cec3e3 /home/christian/Documents/dev/mountd/Cargo.lock
+1ce14c42004a76da7f2516338b16cf0f4d8f458b079b5b11cd35a4d15df94e12 /home/christian/Documents/dev/mountd/tests/portable-reconciler.py
+087c8af8b235be55c97b97e3587e7bd32d0d140e25b11340c84f59cb740e7336 /home/christian/Documents/dev/mountd/tests/audit/round1-lifecycle-review.rs
+be52e02339746a82beaec04c3eb7f15f1c5829f73541c9d4ea98baeb4e2f1149 /home/christian/Documents/dev/mountd/tests/audit/round1-lifecycle-review.py
+negative control, correction removed: False
+fixture: /home/christian/.local/share/agent-tmp/mountd-reconciler-g6stcz11 command: ['cargo', '--offline', '--locked', 'test', '--lib', 'round1_lifecycle_review', '--', '--nocapture']
+   Compiling mountd-round1-lifecycle-review-fixture v0.4.0 (/home/christian/.local/share/agent-tmp/mountd-reconciler-g6stcz11)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 19.70s
+     Running unittests src/lib.rs (/home/christian/Documents/dev/mountd/target/portable-daemon/debug/deps/mountd-b23fb686178fdfbf)
+
+running 7 tests
+test engine::round1_lifecycle_review::aborted_accepted_mount_keeps_new_intent_and_cleanup_ownership ... cancellation matrix: credential/preparation/mount; ownership and retry passed
+ok
+test engine::round1_lifecycle_review::accepted_failures_clear_intent_without_bypassing_gates ... accepted failure matrix: 7 failures; zero premature mounts; direct retry passed
+ok
+test engine::round1_lifecycle_review::cancelled_queued_reload_cannot_reset_accepted_intent_or_publish_config ... ok
+test engine::round1_lifecycle_review::failed_reload_preserves_intent_and_successful_reload_resets_it ... reload matrix: 2 prior intents x unreadable/invalid file; replacement B passed
+ok
+test engine::round1_lifecycle_review::final_sleep_or_shutdown_refusal_does_not_restore_old_intent ... ok
+test engine::round1_lifecycle_review::refusals_preserve_both_existing_intents_and_runtime ... refusal matrix: 4 refusal paths x 2 prior intents passed
+ok
+test engine::round1_lifecycle_review::shortcut_preserves_actual_sources_and_allows_retry_after_external_loss ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 208 filtered out; finished in 0.16s
